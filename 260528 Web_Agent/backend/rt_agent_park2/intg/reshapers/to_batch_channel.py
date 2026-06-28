@@ -48,6 +48,9 @@ def superset_to_batch_channel(superset: dict) -> dict:
         "tx_positions": np.asarray(superset["tx_positions"]),
         "rx_positions": np.asarray(superset["rx_positions"]),
     }
+    # 비파괴 RX 유효 마스크 (0=valid 1=dead 2=rt_fail) — 모든 출력에 공통 기록(인덱스 갭 유지)
+    if "rx_valid_mask" in superset:
+        out["rx_valid_mask"] = np.asarray(superset["rx_valid_mask"]).astype(np.int8)
     for k in ("num_tx_ant", "num_rx_ant", "target_tx_index", "target_rx_index"):
         if k in superset:
             out[k] = np.asarray(superset[k]).reshape(-1).astype(np.int64)

@@ -61,4 +61,9 @@ def superset_to_p1a(superset: dict, tx_index: int = 0, area_index: int = 1) -> d
     # counts: (T,R) → [t] (R,) → (R,1,1,1)
     counts = np.asarray(superset["counts"])[t].reshape(num_rx, 1, 1, 1).astype(np.int32)
     out["counts"] = counts
+
+    # 비파괴 RX 유효 마스크 (0=valid 1=dead 2=rt_fail) — P1C/D 가 valid RX 만 공분산 계산하도록.
+    # (P1A 표준 키는 아니지만 additive 라 P1B 의 키 기반 필터에 영향 없음. 인덱스 갭 유지.)
+    if "rx_valid_mask" in superset:
+        out["rx_valid_mask"] = np.asarray(superset["rx_valid_mask"]).astype(np.int8)
     return out

@@ -391,24 +391,14 @@ def run_batch_rt(payload: dict, session_dir: Path, scene_xml: Path, scene_ply: P
     cfg.tx_position = tuple(cfg.tx_positions[target_tx])
 
     # ── Output 1 (channel_data) ─────────────────────────────────────────────
-    emit({"kind": "stage_start", "stage": "Output1", "progress": 1.0 - VIZ_FRAC})
-    out1 = pp.save_output1_multi(per_tx_all_results, cfg.output_dir_channel, cfg.map_title, config=cfg, rx_positions_3d=rx_pos_3d)
-    output_paths["batch_channel_npz"] = out1
-    emit({"kind": "stage_end", "stage": "Output1", "message": Path(out1).name})
-
-    # ── Intg: superset NPZ + reshaper 뷰 (P1A 호환) ─────────────────────────
+    # Intg 모드면 먼저 superset 을 만들어 rx_valid_mask(dead/rt_fail)를 channel_data 에도 싣는다.
+    intg_superset = None
     if intg_mode:
-        emit({"kind": "stage_start", "stage": "Intg", "progress": 1.0 - VIZ_FRAC * 0.85})
+        emit({"kind": "stage_start", "stage": "Intg", "progress": 1.0 - VIZ_FRAC})
         try:
             from .intg.intg_writer import build_superset
-            from .intg.reshapers.to_p1a import superset_to_p1a
             from .intg import superset_schema as S
-
-            ts = datetime.datetime.now().strftime("%y%m%d_%H%M%S")
-            intg_dir = Path(cfg.output_dir) / "Intg_Results"
-            intg_dir.mkdir(parents=True, exist_ok=True)
-
-            sup = build_superset(
+            intg_superset = build_superset(
                 per_tx_all_results=per_tx_all_results,
                 tx_positions=cfg.tx_positions,
                 rx_positions_3d=rx_pos_3d,
@@ -420,9 +410,30 @@ def run_batch_rt(payload: dict, session_dir: Path, scene_xml: Path, scene_ply: P
                 rng_seed=cfg.seed,
                 max_rays_cap=cfg.viz.max_rays_per_rx,
             )
-            problems = S.validate(sup)
+            problems = S.validate(intg_superset)
             if problems:
                 emit({"kind": "log", "message": "⚠️ superset 검증 경고: " + "; ".join(problems)})
+        except Exception as exc:
+            emit({"kind": "log", "message": f"⚠️ Intg build_superset 실패(계속): {type(exc).__name__}: {exc}"})
+            emit({"kind": "log", "message": traceback.format_exc()})
+
+    emit({"kind": "stage_start", "stage": "Output1", "progress": 1.0 - VIZ_FRAC})
+    _mask = intg_superset.get("rx_valid_mask") if intg_superset is not None else None
+    out1 = pp.save_output1_multi(per_tx_all_results, cfg.output_dir_channel, cfg.map_title,
+                                 config=cfg, rx_positions_3d=rx_pos_3d, rx_valid_mask=_mask)
+    output_paths["batch_channel_npz"] = out1
+    emit({"kind": "stage_end", "stage": "Output1", "message": Path(out1).name})
+
+    # ── Intg: superset NPZ + reshaper 뷰 (P1A 호환) ─────────────────────────
+    if intg_mode and intg_superset is not None:
+        try:
+            from .intg.reshapers.to_p1a import superset_to_p1a
+            from .intg import superset_schema as S
+
+            sup = intg_superset
+            ts = datetime.datetime.now().strftime("%y%m%d_%H%M%S")
+            intg_dir = Path(cfg.output_dir) / "Intg_Results"
+            intg_dir.mkdir(parents=True, exist_ok=True)
 
             # 단일 multi-TX superset NPZ (canonical 출력, 덮어쓰기 방지 타임스탬프)
             sup_path = intg_dir / f"superset_{cfg.map_title}_{ts}.npz"
@@ -449,7 +460,7 @@ def run_batch_rt(payload: dict, session_dir: Path, scene_xml: Path, scene_ply: P
                   "message": f"superset {sup_path.name} | P1A뷰 {n_tx}개 | "
                              f"RX valid {n_valid}/dead {n_dead}/fail {n_fail}"})
         except Exception as exc:
-            emit({"kind": "log", "message": f"⚠️ Intg superset 실패(계속): {type(exc).__name__}: {exc}"})
+            emit({"kind": "log", "message": f"⚠️ Intg superset 저장 실패(계속): {type(exc).__name__}: {exc}"})
             emit({"kind": "log", "message": traceback.format_exc()})
 
     # ── Viz (RSRP/LoS/PDP/PADP/공분산/rx_positions) ─────────────────────────

@@ -28,7 +28,10 @@ P1A(ray-level 기하) + batch(MIMO 공분산/집계) 를 **단일 multi-TX super
 - [x] 4.RT 'Intg Mode' 추가 (P1A/batch 유지) — schema engine="intg", batch_runner intg_mode 분기,
       pipeline_executor engine 분기, 프론트 토글(RTConfigPage/useStore), ScenarioPage 게이트
 - [x] rx_valid_mask 산출(dead/rt_fail) 통합 — build_superset 내 비파괴 마스크
-- [ ] 소규모 씬에서 P1A 원본 NPZ 와 배열 1:1 대조 검증 (실제 GPU RT 미실행)
+      (rt_fail = 음수지연 path_tau<-0.1ns OR ray_efficiency<1.0). 두 reshaper +
+      channel_data(save_output1_multi) + channel_state/rx_inspect API + RXInspector 배지까지 전파.
+      batch 모드는 mask 미전달 시 dead-only 자동 산출.
+- [ ] 소규모 씬에서 P1A 원본 NPZ 와 배열 1:1 대조 검증 (실제 GPU RT)
 - [ ] (옵션) P1B 멀티-TX 직접 소비 — 현재는 to_p1a 가 TX별 P1A 파일로 분리 제공(P1B 무수정)
 - [ ] ETA 예측 시스템
 

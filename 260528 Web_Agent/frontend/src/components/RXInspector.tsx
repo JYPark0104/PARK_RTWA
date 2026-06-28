@@ -6,6 +6,7 @@ type TX = { idx: number; x: number; y: number; z: number }
 type SData = { rx: RX[]; tx: TX[]; edges: number[][][]; num_rx: number; num_tx: number }
 type Inspect = {
   rx_idx: number; tx_index: number; rsrp_dbm: number | null; num_paths: number
+  valid_code?: number | null
   padp_png_rel: string; pdp_png_rel: string; cov_png_rel: string
 }
 
@@ -138,6 +139,11 @@ export function RXInspector({ uuid }: { uuid: string }) {
               <b>RX{insp.rx_idx}</b> / TX{insp.tx_index} ·
               RSRP <span className="font-mono">{insp.rsrp_dbm != null ? `${insp.rsrp_dbm.toFixed(2)} dBm` : 'Dead'}</span> ·
               경로 <span className="font-mono">{insp.num_paths}개</span>
+              {insp.valid_code != null && insp.valid_code !== 0 && (
+                <span className={`ml-2 px-1.5 py-0.5 rounded text-[11px] ${insp.valid_code === 1 ? 'bg-slate-200 text-slate-600' : 'bg-rose-100 text-rose-700'}`}>
+                  {insp.valid_code === 1 ? 'dead (유효경로 0)' : 'rt_fail (음수지연/효율미달)'}
+                </span>
+              )}
             </div>
             <Img uuid={uuid} rel={insp.pdp_png_rel} caption="PDP (delay vs power) + RSRP" />
             <Img uuid={uuid} rel={insp.padp_png_rel} caption="PADP (AoA vs delay, 크기=power)" />

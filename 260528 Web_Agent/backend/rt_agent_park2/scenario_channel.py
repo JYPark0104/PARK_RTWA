@@ -77,6 +77,7 @@ def channel_state(npz_path: str | Path, rx_indices: list[int], tx_index: int = 0
     t = int(tx_index)
     rsrp_all = g("rsrp_all")
     los_all = g("los_all")
+    rx_valid_mask = g("rx_valid_mask")   # (R,) 0=valid 1=dead 2=rt_fail (없으면 None)
     out: list[dict] = []
 
     for ri in rx_indices:
@@ -119,6 +120,8 @@ def channel_state(npz_path: str | Path, rx_indices: list[int], tx_index: int = 0
             "rsrp": (round(rsrp, 2) if rsrp is not None else None),
             "los": los,
             "num_paths": npaths,
+            "valid_code": (int(rx_valid_mask[i]) if rx_valid_mask is not None
+                           and i < np.asarray(rx_valid_mask).reshape(-1).size else None),
             "padp": padp,
             "r_rx": _cov_payload(R_RX),
             "r_tx": _cov_payload(R_TX),

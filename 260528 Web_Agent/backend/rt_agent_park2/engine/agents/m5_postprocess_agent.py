@@ -478,7 +478,8 @@ def save_output1(result: SimulationResult, output_dir: str,
 
 def save_output1_multi(per_tx_all_results: list, output_dir: str,
                        map_title: str = "map", config: RT_Config = None,
-                       rx_positions_3d: list = None) -> str:
+                       rx_positions_3d: list = None,
+                       rx_valid_mask=None) -> str:
     """
     Multi-TX 결과를 하나의 .npz로 저장한다 (Output 1 — Channel Agent용).
 
@@ -532,6 +533,14 @@ def save_output1_multi(per_tx_all_results: list, output_dir: str,
 
     save_dict["rsrp_all"] = rsrp_all
     save_dict["los_all"]  = los_all
+
+    # 비파괴 RX 유효 마스크 (0=valid 1=dead 2=rt_fail). intg 엔진은 dead/rt_fail 구분 마스크를
+    # 전달; batch 엔진은 미전달 → 모든 TX RSRP=-inf 인 RX 만 dead 로 자동 산출.
+    if rx_valid_mask is not None:
+        save_dict["rx_valid_mask"] = np.asarray(rx_valid_mask).astype(np.int8).reshape(-1)
+    else:
+        _dead = np.all(~np.isfinite(rsrp_all), axis=0)   # (num_rx,) 모든 TX dead
+        save_dict["rx_valid_mask"] = np.where(_dead, 1, 0).astype(np.int8)
 
     if config is not None:
         save_dict["tx_positions"]    = np.array(config.tx_positions, dtype=np.float64)

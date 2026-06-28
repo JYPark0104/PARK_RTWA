@@ -47,6 +47,9 @@ def inspect_rx(npz_path: Path, rx_idx: int, tx_index: int, out_dir: Path) -> dic
     R_TX = _safe(d, f"R_TX_{pre}")
     rsrp_all = _safe(d, "rsrp_all")
     rsrp = float(rsrp_all[t, i]) if rsrp_all is not None and t < rsrp_all.shape[0] and i < rsrp_all.shape[1] else float("-inf")
+    rx_valid_mask = _safe(d, "rx_valid_mask")
+    valid_code = (int(np.asarray(rx_valid_mask).reshape(-1)[i])
+                  if rx_valid_mask is not None and i < np.asarray(rx_valid_mask).reshape(-1).size else None)
 
     has_paths = tau is not None and np.asarray(tau).size > 0
     tag = f"rx{i}_tx{t}"
@@ -116,6 +119,7 @@ def inspect_rx(npz_path: Path, rx_idx: int, tx_index: int, out_dir: Path) -> dic
         "rx_idx": i, "tx_index": t,
         "rsrp_dbm": (rsrp if np.isfinite(rsrp) else None),
         "num_paths": int(np.asarray(tau).size) if has_paths else 0,
+        "valid_code": valid_code,
         "padp_png": str(padp_png),
         "pdp_png": str(pdp_png),
         "cov_png": str(cov_png),

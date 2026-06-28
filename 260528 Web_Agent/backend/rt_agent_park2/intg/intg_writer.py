@@ -135,20 +135,30 @@ def build_superset(
                 sup["los_nlos_flag"][t, i, :p] = rays["los_nlos_flag"]
 
     # ── 4) rx_valid_mask (비파괴: 0=valid 1=dead 2=rt_fail) ─────
+    #   판정(P1B 규약): dead=유효경로 0 / rt_fail=음수지연(path_tau<-0.1ns) 또는
+    #   ray_efficiency(=power>0 ray 비율) < RAY_EFFICIENCY_THRESHOLD.
     mask = np.full(R, S.RX_VALID, np.int8)
     for i in range(R):
         any_path = bool((path_counts[:, i] > 0).any())
         if not any_path:
             mask[i] = S.RX_DEAD
             continue
-        # rt_fail: 어느 TX 든 음수지연 존재 (path_tau 는 ns 단위; 패딩 0 은 안전).
-        # 물리적으로 경로 지연은 양수여야 하므로, 의미있는 음수(<-0.1ns)는 RT 아티팩트로 본다.
         rt_fail = False
         for t in range(T):
             k = int(path_counts[t, i])
-            if k > 0 and np.any(sup["path_tau"][t, i, :k] < tau_min_threshold):
+            if k == 0:
+                continue
+            # (a) 음수지연 (path_tau 는 ns; 패딩 0 은 안전)
+            if np.any(sup["path_tau"][t, i, :k] < tau_min_threshold):
                 rt_fail = True
                 break
+            # (b) ray_efficiency: 유효 ray(power>0) / 전체 ray 수 < 임계 → 실패
+            p = int(ray_counts[t, i])
+            if p > 0:
+                valid_rays = int(np.count_nonzero(sup["power"][t, i, :p] > 0))
+                if (valid_rays / p) < S.RAY_EFFICIENCY_THRESHOLD:
+                    rt_fail = True
+                    break
         mask[i] = S.RX_RT_FAIL if rt_fail else S.RX_VALID
 
     sup["rx_valid_mask"] = mask

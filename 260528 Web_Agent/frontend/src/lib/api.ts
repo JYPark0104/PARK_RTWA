@@ -340,6 +340,7 @@ export const apiClient = {
     start: number; count: number; total: number; tx_index: number
     items: {
       rx_idx: number; rsrp: number | null; los: boolean | null; num_paths: number
+      valid_code?: number | null
       padp: { tau: number[]; aoa: number[]; power: number[] } | null
       r_rx: { m: number[]; disp: number; n: number } | null
       r_tx: { m: number[]; disp: number; n: number } | null
@@ -363,6 +364,7 @@ export const apiClient = {
   },
   async rxInspect(uuid: string, rx: number, tx: number): Promise<{
     rx_idx: number; tx_index: number; rsrp_dbm: number | null; num_paths: number
+    valid_code?: number | null
     padp_png_rel: string; pdp_png_rel: string; cov_png_rel: string
   }> {
     const { data } = await api.get(`/sessions/${uuid}/rx_inspect`, { params: { rx, tx } })
