@@ -1,0 +1,59 @@
+// For format details, see https://aka.ms/devcontainer.json. For config options, see the
+// README at: https://github.com/devcontainers/templates/tree/main/src/docker-existing-dockerfile
+{
+	"name": "ChDev_Jonghyun2",
+	"build": {
+		// Sets the run context to one level up instead of the .devcontainer folder.
+		"context": "..",
+		// Update the 'dockerFile' property if you aren't using the standard 'Dockerfile' filename.
+		"dockerfile": "../Dockerfile",
+		"args": {
+			"VSCODE_SERVER_COMMIT": "6f17636121051a53c88d3e605c491d22af2ba755"
+		}
+	},
+    "runArgs": [
+        "--gpus=all",
+        "--privileged=true"
+    ],
+    "containerEnv": {
+        "NVIDIA_DRIVER_CAPABILITIES": "graphics,compute,utility"
+    },
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "ms-python.python",
+                "ms-python.vscode-pylance",
+                "ms-python.black-formatter",
+                "ms-toolsai.jupyter"
+            ],
+            "settings": {
+                "python.interpreterPath": "/usr/local/bin/python",
+                "[python]": {
+                    "editor.defaultFormatter": "ms-python.black-formatter",
+                    "linting.enabled": true
+                }
+            }
+        }
+    },
+    "forwardPorts": [8889],
+    "postCreateCommand": "pip install black pylint",
+    "remoteUser": "root" 
+    // 컨테이너 내에서 사용할 리눅스 사용자 계정 지정
+    // root: 컨테이너 내 모든 권한을 가진 관리자 계정
+    // 파일 생성/수정, 패키지 설치 등 모든 작업 가능
+    // 컨테이너 내부의 권한만 보유 - 동시 접속 충돌 관련 X
+	// Features to add to the dev container. More info: https://containers.dev/features.
+	// "features": {},
+
+	// Use 'forwardPorts' to make a list of ports inside the container available locally.
+	// "forwardPorts": [],
+
+	// Uncomment the next line to run commands after the container is created.
+	// "postCreateCommand": "cat /etc/os-release",
+
+	// Configure tool-specific properties.
+	// "customizations": {},
+
+	// Uncomment to connect as an existing user other than the container default. More info: https://aka.ms/dev-containers-non-root.
+	// "remoteUser": "devcontainer"
+}

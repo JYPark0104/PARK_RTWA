@@ -1,0 +1,1249 @@
+\documentclass[10pt]{article}
+\usepackage[a4paper, margin=1in]{geometry}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage[hangul]{kotex}
+\usepackage{bm}
+\usepackage{algorithm}
+\usepackage{algorithmic}
+\usepackage{xcolor}
+
+\title{양방향 Wen2011 + SWOMP 코드북 선택 (P1P v3)}
+\author{}
+\date{}
+
+\begin{document}
+\maketitle
+
+\section{서론}
+
+\subsection{P1P v3 알고리즘 개요}
+
+P1P v3는 Wen2011 점근적 최적 입력 공분산과 SWOMP 기반 2단계 코드북 선택을 결합한 양방향 HBF 알고리즘이다. (HBF: Hybrid Beamforming)
+
+\paragraph{핵심 구성.}
+\begin{itemize}
+    \item \textbf{Wen2011 최적화}: 바이히셀베르거 채널 통계 기반 에르고딕 용량 최대화
+    \item \textbf{2단계 SWOMP 선택}: 전체 레이어 공통 SWOMP 후보 생성 + 용량 기반 Greedy 선택
+    \item \textbf{양방향 처리}: 업링크 UE 코드북 할당 $\rightarrow$ 다운링크 BS 코드북 할당
+    \item \textbf{채널 랭크 제한}: $r_{\text{mode}} = \min(N_{\text{BS,Layer}}, N_{\text{UE,Layer}}) = 4$
+    \item \textbf{고유값 가중}: $\mathbf{D} = \text{diag}(\sqrt{\lambda_1}, \ldots, \sqrt{\lambda_{r_{\text{mode}}}})$로 중요 모드 강조
+\end{itemize}
+
+\subsection{알고리즘 흐름}
+
+\paragraph{Stage 1: 업링크 UE 코드북 할당.}
+UE는 모든 Layer를 사용 (4개 Layer $=$ 4개 TRX):
+\begin{enumerate}
+    \item 초기 채널 통계로 Wen2011 최적 입력 공분산 $\mathbf{P}_{\text{UE}}^{\star}$ 계산
+    \item 고유값 분해: 상위 $r_{\text{mode}}=4$개 고유벡터 $\mathbf{V}_{\text{UE}} \in \mathbb{C}^{16 \times 4}$ 및 고유값 $\boldsymbol{\Lambda}$
+    \item SWOMP로 전체 Layer 공통 $r_{\text{mode}}$개 후보 생성 (고유값 가중 내적 기반)
+    \item Greedy로 각 Layer에 공통 후보 중 최적 코드북 할당
+    \item 최종: $\mathbf{W}_{\text{UE}}^{\star} = \mathbf{W}_{\text{UE}}[\ell_0, \ell_1, \ell_2, \ell_3]$ (Section 2.4 표기법 참조)
+\end{enumerate}
+
+\paragraph{Stage 2: 다운링크 BS 코드북 할당 (순차).}
+BS는 활성 Layer를 순차 추가하여 RF 하드웨어 절약:
+\begin{enumerate}
+    \item $\mathbf{W}_{\text{UE}}^{\star}$로 빔 도메인 변환
+    \item Wen2011로 최적 BS 입력 공분산 $\mathbf{P}_{\text{BS}}^{\star}$ 계산
+    \item 고유값 분해: 상위 $r_{\text{mode}}=4$개 고유벡터 $\mathbf{V}_{\text{BS}} \in \mathbb{C}^{1024 \times 4}$ 및 고유값 $\boldsymbol{\Lambda}$
+    \item SWOMP로 전체 64 Layer 공통 최대 32개 후보 생성 (adaptive stopping, 잔차 < 5\%)
+    \item Layer 1 선택 후, 용량 상위 4개 후보로 필터링
+    \item Layer를 순차 추가하며 ($n=1, 2, \ldots$), Greedy로 공통 후보 중 최적 코드북 할당
+    \item $n$개 활성 Layer 사용 시: $\mathbf{W}_{\text{BS}}[k_1, \ldots, k_n] \in \mathbb{C}^{1024 \times 64}$, $\mathbf{B}_{\text{BS}}[k_1, \ldots, k_n] \in \mathbb{C}^{64 \times 4}$
+    \item $\mathbf{V}_{\text{BS}} \approx \mathbf{W}_{\text{BS}}[k_1, \ldots, k_n] \mathbf{B}_{\text{BS}}[k_1, \ldots, k_n]$ (활성 Layer $n \geq r_{\text{mode}}$, 많을수록 근사 정확)
+\end{enumerate}
+
+\subsection{2단계 코드북 선택 알고리즘}
+
+\paragraph{요약:} Wen2011 송신 공분산 최적화 ($\mathbf{V}^{\star},\boldsymbol{\Lambda}^{\star}$) $\rightarrow$ SWOMP 기반 코드북 후보 선별 $\rightarrow$ Greedy 코드북 선택
+
+\paragraph{Stage 1: SWOMP 기반 코드북 후보 선별.}
+\begin{enumerate}
+    \item 초기화: $\mathbf{R}^{(0)} \gets \mathbf{V}^{\star}$, 
+          $\mathbf{D} \gets \boldsymbol{\Lambda}^{\star}$,
+          $\mathcal{C} \gets \emptyset$
+    \item 반복 ($i = 1$ to $n_{\text{cand,max}}$, adaptive stopping):
+    \begin{enumerate}
+        \item 각 반복 $i$에서 모든 코드북 $j$를 전체 Layer에 동일 할당 $\mathbf{W}[j\,\mathbf{1}_N]$
+        \item 고유값 가중 내적 최대화: $j_i^{\star} = \arg\max_j \rho_j^{(i)} = \arg\max_j \|\mathbf{W}[j\,\mathbf{1}_N]^{\mathsf{H}} \mathbf{R}^{(i-1)} \mathbf{D}\|_{\text{F}}^2$
+        \item 디지털 빔포밍 (Least Squares 해): $\mathbf{B}_i = \mathbf{W}[j_i^{\star}\,\mathbf{1}_N]^{\dagger} \mathbf{R}^{(i-1)}$
+        \item 잔차 업데이트 (직교화): $\mathbf{R}^{(i)} = \mathbf{R}^{(i-1)} - \mathbf{W}[j_i^{\star}\,\mathbf{1}_N] \mathbf{B}_i$
+        \item 선택된 코드북을 후보 풀에 추가: $\mathcal{C} = \mathcal{C} \cup \{j_i^{\star}\}$
+        \item 조기 종료 조건: $\|\mathbf{R}^{(i)}\|_{\text{F}}/\|\mathbf{V}\|_{\text{F}} < \tau$
+    \end{enumerate}
+    \item 결과: 코드북 후보 풀 $\mathcal{C} = \{j_1, \ldots, j_{n_{\text{cand}}}\}$ ($n_{\text{cand}} \leq n_{\text{cand,max}}$, UE: 4개, BS: 4-32개)
+\end{enumerate}
+
+\paragraph{Stage 2: Greedy 선택.}
+공통 후보 풀 $\mathcal{C}$에서 Layer별 최적 코드북 선택 (중복 할당 가능):
+\begin{itemize}
+    \item Layer 1 선택 후, 공통 후보 중 용량 상위 $r_{\text{mode}}$개로 필터링
+    \item Layer 2~64는 필터링된 후보 내에서만 선택
+\end{itemize}
+\begin{enumerate}
+    \item 초기화: $\mathbf{W}[\,] = \mathbf{0}$ (빔포밍 행렬 비어있음, 영행렬)
+    \item Layer $i$를 추가할 때, 후보 풀의 각 코드북 $w \in \mathcal{C}$에 대해:
+    \begin{itemize}
+        \item 빔포밍 행렬 업데이트: $\mathbf{W}[\ell_0, \ldots, \ell_{i-1}, w]$
+        \item Wen2011 에르고딕 용량 계산: 
+        \begin{equation}
+        C(w) = \text{Wen2011\_Capacity}(\mathbf{U}_{\text{BS}}, \mathbf{U}_{\text{UE}}, \boldsymbol{\Omega}, \bar{\mathbf{H}}, \mathbf{W}[\ell_0, \ldots, \ell_{i-1}, w])
+        \end{equation}
+    \end{itemize}
+    \item 용량 최대화 선택:
+    \begin{equation}
+    \ell_i^{\star} = \arg\max_{w \in \mathcal{C}} C(w)
+    \end{equation}
+    \item Layer $i$에 $\ell_i^{\star}$ 할당, 다음 Layer로 진행
+    \item 모든 Layer 할당 완료 시 종료 (UE: 4개, BS: 순차 $n$개)
+\end{enumerate}
+
+
+\clearpage
+\section{시스템 파라미터}
+
+\subsection{명명 규칙}
+
+계층적 표기: $N_{\text{UE,Layer,AE}}$ = ``UE의 Layer당 AE 개수'', $N_{\text{BS,AE}}$ = ``BS 전체 AE 수''. 언더스코어로 상위$\rightarrow$하위 개념 연결. 예: $N_{\text{UE,AE}} = N_{\text{UE,Layer}} \times N_{\text{UE,Layer,AE}} = 4 \times 4 = 16$.
+
+\subsection{시스템 파라미터 정의}
+
+\paragraph{UE (User Equipment) 하드웨어.}
+\begin{itemize}
+    \item $N_{\text{UE,AE}} = 16$: UE 전체 안테나 엘리먼트 수
+    \item $N_{\text{UE,Layer}} = 4$: UE Layer 수
+    \item $N_{\text{UE,Layer,AE}} = 4$: UE Layer당 안테나 엘리먼트 수
+    \item $N_{\text{UE,Layer,row}} = 2$: UE Layer 서브어레이 행 수
+    \item $N_{\text{UE,Layer,col}} = 2$: UE Layer 서브어레이 열 수
+\end{itemize}
+
+\paragraph{참고: UE TRX와 Layer 관계.}
+UE는 4개의 TRX(Transceiver)를 가지며, 각 TRX는 하나의 Layer에 1:1 대응한다. 따라서 $N_{\text{UE,TRX}} = N_{\text{UE,Layer}} = 4$이다.
+
+\paragraph{BS (Base Station) 하드웨어.}
+\begin{itemize}
+    \item $N_{\text{BS,AE}} = 1024$: BS 전체 안테나 엘리먼트 수
+    \item $N_{\text{BS,Layer}} = 64$: BS Layer 수
+    \item $N_{\text{BS,Layer,AE}} = 16$: BS Layer당 안테나 엘리먼트 수
+    \item $N_{\text{BS,Layer,row}} = 4$: BS Layer 서브어레이 행 수
+    \item $N_{\text{BS,Layer,col}} = 4$: BS Layer 서브어레이 열 수
+\end{itemize}
+
+\paragraph{코드북 파라미터.}
+\begin{itemize}
+    \item $N_{\text{UE,Layer,Beams}} = 16$: UE Layer당 DFT 코드북 빔 수
+    \item $N_{\text{BS,Layer,Beams}} = 64$: BS Layer당 DFT 코드북 빔 수
+    \item $N_{\text{oversample}} = 2$: DFT 오버샘플링 계수 (UE/BS 공통)
+\end{itemize}
+
+\paragraph{선택 제약 파라미터.}
+\begin{itemize}
+    \item $r_{\text{mode}} = \min(N_{\text{BS,Layer}}, N_{\text{UE,Layer}}) = \min(64, 4) = 4$: 전송 모드 수 (MIMO 채널 랭크 제약)
+    \item $r_{\text{UE}} = r_{\text{mode}} = 4$: Stage 1에서 선택할 UE 고유벡터/빔 개수
+    \item 전력 제약 (업링크): $\text{tr}(\mathbf{P}_{\text{UE}}) \leq P_{\text{total,UE}}$
+    \item 전력 제약 (다운링크): $\text{tr}(\mathbf{P}_{\text{BS}}) \leq P_{\text{total,DL}}$ (UL-DL duality)
+\end{itemize}
+
+\paragraph{중요: $r_{\text{mode}}$ 결정 원리.}
+$r_{\text{mode}}$는 전력 제약이 아닌 시스템의 $\min(N_{\text{BS,Layer}}, N_{\text{UE,Layer}})$에 의해 결정된다. MIMO 채널은 물리적으로 $r_{\text{mode}}$개의 독립 공간 모드만 지원하므로, Wen2011은 이 $r_{\text{mode}}$개 모드 제약에 한해서 전력 조건($\text{tr}(\mathbf{P}) \leq P_{\text{total}}$)을 만족하는 water-filling을 수행해야 한다.
+
+\paragraph{파라미터 관계식.}
+\begin{itemize}
+    \item $N_{\text{UE,AE}} = N_{\text{UE,Layer}} \times N_{\text{UE,Layer,AE}} = 4 \times 4 = 16$
+    \item $N_{\text{UE,Layer,AE}} = N_{\text{UE,Layer,row}} \times N_{\text{UE,Layer,col}} = 2 \times 2 = 4$
+    \item $N_{\text{BS,AE}} = N_{\text{BS,Layer}} \times N_{\text{BS,Layer,AE}} = 64 \times 16 = 1024$
+    \item $N_{\text{BS,Layer,AE}} = N_{\text{BS,Layer,row}} \times N_{\text{BS,Layer,col}} = 4 \times 4 = 16$
+    \item $N_{\text{UE,Layer,Beams}} = (N_{\text{oversample}} \times N_{\text{UE,Layer,row}})^2 = (2 \times 2)^2 = 16$
+    \item $N_{\text{BS,Layer,Beams}} = (N_{\text{oversample}} \times N_{\text{BS,Layer,row}})^2 = (2 \times 4)^2 = 64$
+\end{itemize}
+
+\subsection{하드웨어 구성 (양방향)}
+
+\paragraph{Stage 1: 업링크 (UE TX $\rightarrow$ BS RX).}
+\begin{itemize}
+    \item UE: $N_{\text{UE,AE}}$ (=16) AE, $N_{\text{UE,Layer}}$ (=4) Layer, $N_{\text{UE,Layer,AE}}$ (=4) AE/Layer (송신측)
+    \item BS: $N_{\text{BS,AE}}$ (=1024) AE (수신측, 빔포밍 최적화 대상 아님)
+    \item 목표: UE $N_{\text{UE,Layer}}$ Layer 빔 선택
+    \item 참고: UE TRX ↔ Layer 1:1 대응
+\end{itemize}
+
+\paragraph{Stage 2: 다운링크 (BS TX $\rightarrow$ UE RX).}
+\begin{itemize}
+    \item BS: $N_{\text{BS,AE}}$ (=1024) AE, $N_{\text{BS,Layer}}$ (=64) Layer, $N_{\text{BS,Layer,AE}}$ (=16) AE/Layer (송신측)
+    \item 각 Layer: $N_{\text{BS,Layer,row}} \times N_{\text{BS,Layer,col}}$ (=4×4) 안테나 서브어레이
+    \item UE: Stage 1 결과 고정 (수신측, $\boldsymbol{\ell}_{\text{UE}}^{\star}$ 사용)
+    \item 목표: BS Layer 빔 순차 선택
+\end{itemize}
+
+\subsection{DFT 코드북}
+
+코드북은 안테나 배열 크기와 오버샘플링 팩터로 정의:
+
+\paragraph{UE Layer 코드북 (4×16).}
+\begin{itemize}
+    \item 2×2 안테나 서브어레이, 오버샘플링 팩터 2
+    \begin{equation}
+    \mathbf{F}_{2,2,2,2} = \mathbf{F}_{2,2} \otimes \mathbf{F}_{2,2} \in \mathbb{C}^{4 \times 16}
+    \end{equation}
+    \item $\mathbf{F}_{2,2}$: 2-point DFT, 오버샘플링 2배 → 4개 빔, Kronecker로 16개 빔
+    \item 코드북 벡터: $\mathbf{f}_{2,2,2,2}[\ell] \in \mathbb{C}^4$, $\ell \in \{0, \ldots, 15\}$
+\end{itemize}
+
+\paragraph{BS Layer 코드북 (16×64).}
+\begin{itemize}
+    \item 4×4 안테나 서브어레이, 오버샘플링 팩터 2
+    \begin{equation}
+    \mathbf{F}_{4,2,4,2} = \mathbf{F}_{4,2} \otimes \mathbf{F}_{4,2} \in \mathbb{C}^{16 \times 64}
+    \end{equation}
+    \item $\mathbf{F}_{4,2}$: 4-point DFT, 오버샘플링 2배 → 8개 빔, Kronecker로 64개 빔
+    \item 코드북 벡터: $\mathbf{f}_{4,2,4,2}[k] \in \mathbb{C}^{16}$, $k \in \{0, \ldots, 63\}$
+\end{itemize}
+
+\paragraph{레이어별 빔 할당 표기.}
+\begin{itemize}
+    \item UE $i$번째 레이어: $\mathbf{w}_{\text{UE},i} = \mathbf{f}_{2,2,2,2}[\ell_i]$ ($\ell_i$번째 코드북 선택)
+    \item BS $i$번째 레이어: $\mathbf{w}_{\text{BS},i} = \mathbf{f}_{4,2,4,2}[k_i]$ ($k_i$번째 코드북 선택)
+\end{itemize}
+
+\subsection{빔포밍 행렬 표기법}
+
+\paragraph{Stage 1: UE 빔포밍 (업링크, 선택 대상).}
+\begin{itemize}
+    \item 빔 인덱스: $\boldsymbol{\ell}_{\text{UE}}^{\star} = [\ell_0, \ell_1, \ldots, \ell_3]^{\mathsf{T}}$, $\ell_i \in \{0, \ldots, 15\}$
+    \item 빔포밍 행렬:
+    \begin{equation}
+    \mathbf{W}_{\text{UE}}^{\star}(\boldsymbol{\ell}) = \text{blkdiag}(\mathbf{f}_{2,2,2,2}[\ell_0], \ldots, \mathbf{f}_{2,2,2,2}[\ell_3]) \in \mathbb{C}^{16 \times 4}
+    \end{equation}
+    즉, $\mathbf{w}_{\text{UE},i} = \mathbf{f}_{2,2,2,2}[\ell_i]$
+    \item UE 송신 빔포밍 (업링크), $r_{\text{mode}} = 4$
+\end{itemize}
+
+\paragraph{Stage 2: BS 빔포밍 (다운링크, 순차 선택).}
+\begin{itemize}
+    \item 코드북 할당 순서 ($n$개 Layer 사용): $\boldsymbol{k}_{\text{BS},n}^{\star} = [k_1, k_2, \ldots, k_n]$, $k_i \in \{0, \ldots, 63\}$
+    \item 빔포밍 행렬 ($n$개 Layer 사용 시):
+    \begin{equation}
+    \mathbf{W}_{\text{BS}}^{(n)}(\mathbf{k}) = \text{blkdiag}(\mathbf{f}_{4,2,4,2}[k_1], \ldots, \mathbf{f}_{4,2,4,2}[k_n], \mathbf{0}, \ldots, \mathbf{0}) \in \mathbb{C}^{1024 \times 64}
+    \end{equation}
+    즉, $\mathbf{w}_{\text{BS},i} = \mathbf{f}_{4,2,4,2}[k_i]$
+    \item BS 송신 빔포밍 (다운링크), UE 수신측은 $\mathbf{W}_{\text{UE}}^{\star}$ 고정
+\end{itemize}
+
+\subsection{성능 지표}
+
+\begin{itemize}
+    \item $C_{\text{DL,full}}$: 다운링크 기준 용량 (최적 $\mathbf{W}_{\text{UE}}^{\star}$ + 모든 $N_{\text{BS,Layer}}=64$개 Layer 사용)
+    \item $C_{\text{DL,full}} = C_{\text{DL}}^{(64)}$ (용량 히스토리의 마지막 값)
+    \item $C_{\text{UE}}$: Stage 1 결과 (UE $N_{\text{UE,Layer}}$ Layer 빔 선택 후 용량, $r_{\text{mode}} = 4$)
+    \item $C_{\text{DL}}^{(n)}$: Stage 2 결과 (BS $n$개 빔 사용 시 다운링크 용량)
+    \item $\{C_{\text{DL}}^{(1)}, C_{\text{DL}}^{(2)}, \ldots, C_{\text{DL}}^{(64)}\}$: 용량 히스토리
+    \item 관계: $C_{\text{DL}}^{(1)} \leq C_{\text{DL}}^{(2)} \leq \cdots \leq C_{\text{DL}}^{(64)} = C_{\text{DL,full}}$
+\end{itemize}
+
+\subsection{채널 모델}
+
+\paragraph{Stage 1: 업링크 채널 (Weichselberger).}
+\begin{equation}
+\mathbf{H}_{\text{UL}} \in \mathbb{C}^{N_{\text{BS,AE}} \times N_{\text{UE,AE}}} \quad \text{(BS RX $\times$ UE TX)}
+\end{equation}
+
+\paragraph{Stage 2: 다운링크 채널 (Weichselberger).}
+\begin{equation}
+\mathbf{H}_{\text{DL}} = \mathbf{H}_{\text{UL}}^{\mathsf{H}} \in \mathbb{C}^{N_{\text{UE,AE}} \times N_{\text{BS,AE}}} \quad \text{(UE RX $\times$ BS TX, 상호성 가정)}
+\end{equation}
+
+\paragraph{채널 통계 파라미터 (P1I, 업링크 기준).}
+\begin{itemize}
+    \item $\mathbf{U}_{\text{BS}} \in \mathbb{C}^{N_{\text{BS,AE}} \times N_{\text{BS,AE}}}$: BS 고유벡터 (unitary)
+    \item $\mathbf{U}_{\text{UE}} \in \mathbb{C}^{N_{\text{UE,AE}} \times N_{\text{UE,AE}}}$: UE 고유벡터 (unitary)
+    \item $\boldsymbol{\Omega}_{\text{UL}} \in \mathbb{R}_+^{N_{\text{BS,AE}} \times N_{\text{UE,AE}}}$: 업링크 커플링 행렬
+    \item $\boldsymbol{\Omega}_{\text{DL}} = \boldsymbol{\Omega}_{\text{UL}}^{\mathsf{T}} \in \mathbb{R}_+^{N_{\text{UE,AE}} \times N_{\text{BS,AE}}}$: 다운링크 커플링 (상호성)
+    \item $\bar{\mathbf{H}}_{\text{UL}} \in \mathbb{C}^{N_{\text{BS,AE}} \times N_{\text{UE,AE}}}$: 업링크 평균 채널
+    \item $\bar{\mathbf{H}}_{\text{DL}} = \bar{\mathbf{H}}_{\text{UL}}^{\mathsf{H}} \in \mathbb{C}^{N_{\text{UE,AE}} \times N_{\text{BS,AE}}}$: 다운링크 평균 채널
+\end{itemize}
+
+\subsection{빔포밍 행렬 표기법}
+
+본 문서에서 사용하는 빔포밍 행렬 인덱싱 규칙을 명시적으로 정의한다.
+
+\paragraph{코드북 인덱싱.}
+코드북 벡터는 대괄호 표기로 인덱싱한다 (zero-based):
+\begin{itemize}
+    \item $\mathbf{f}[j]$: $j$번째 코드북 벡터 ($j=0$도 유효한 인덱스)
+    \item UE 코드북: $\mathbf{f}_{2,2,2,2}[\ell] \in \mathbb{C}^4$, $\ell \in \{0, 1, \ldots, 15\}$
+    \item BS 코드북: $\mathbf{f}_{4,2,4,2}[k] \in \mathbb{C}^{16}$, $k \in \{0, 1, \ldots, 63\}$
+\end{itemize}
+
+\paragraph{빔포밍 행렬 표기: 동일 할당 (SWOMP).}
+코드북 $j$를 모든 $N$개 레이어에 동일하게 할당할 때:
+\begin{equation}
+\mathbf{W}[j\,\mathbf{1}_N] = \text{blkdiag}(\mathbf{f}[j], \mathbf{f}[j], \ldots, \mathbf{f}[j]) \quad (N\text{개 반복})
+\end{equation}
+
+구체적으로:
+\begin{itemize}
+    \item UE: $\mathbf{W}_{\text{UE}}[j\,\mathbf{1}_4] = \text{blkdiag}(\mathbf{f}_{2,2,2,2}[j], \mathbf{f}_{2,2,2,2}[j], \mathbf{f}_{2,2,2,2}[j], \mathbf{f}_{2,2,2,2}[j]) \in \mathbb{C}^{16 \times 4}$
+    \item BS: $\mathbf{W}_{\text{BS}}[j\,\mathbf{1}_{64}] = \text{blkdiag}(\mathbf{f}_{4,2,4,2}[j], \mathbf{f}_{4,2,4,2}[j], \ldots, \mathbf{f}_{4,2,4,2}[j]) \in \mathbb{C}^{1024 \times 64}$ (64개)
+\end{itemize}
+
+여기서 $j\,\mathbf{1}_N$은 ``코드북 $j$를 모든 $N$개 레이어에 동일 할당''을 의미한다.
+
+\paragraph{빔포밍 행렬 표기: 개별 선택 (Greedy).}
+처음 $n$개 레이어에 각각 코드북 $a_1, \ldots, a_n$을 할당할 때:
+\begin{equation}
+\mathbf{W}[a_1, \ldots, a_n] = \text{blkdiag}(\mathbf{f}[a_1], \ldots, \mathbf{f}[a_n], \mathbf{0}, \ldots, \mathbf{0})
+\end{equation}
+
+\textbf{핵심 규칙}:
+\begin{itemize}
+    \item 대괄호 안에 $n$개 인덱스 → 처음 $n$개 레이어만 활성화
+    \item 나머지 $(N-n)$개 레이어는 자동으로 $\mathbf{0}$ 벡터 (명시하지 않음)
+    \item \textbf{Zero-based 안전성}: $0$도 유효한 코드북 인덱스이므로, 미선택 레이어는 생략
+\end{itemize}
+
+\textbf{예시}:
+\begin{itemize}
+    \item $\mathbf{W}_{\text{UE}}[5, 2, 11] = \text{blkdiag}(\mathbf{f}_{2,2,2,2}[5], \mathbf{f}_{2,2,2,2}[2], \mathbf{f}_{2,2,2,2}[11], \mathbf{0}) \in \mathbb{C}^{16 \times 4}$ 
+    
+    (4개 레이어 중 3개 활성, 코드북 5, 2, 11 선택)
+    \item $\mathbf{W}_{\text{BS}}[23, 0, 15, 8] = \text{blkdiag}(\mathbf{f}_{4,2,4,2}[23], \mathbf{f}_{4,2,4,2}[0], \mathbf{f}_{4,2,4,2}[15], \mathbf{f}_{4,2,4,2}[8], \mathbf{0}, \ldots, \mathbf{0}) \in \mathbb{C}^{1024 \times 64}$
+    
+    (64개 레이어 중 4개 활성, 코드북 23, 0, 15, 8 선택, \textbf{0도 유효한 코드북})
+\end{itemize}
+
+\paragraph{반복 단계 표기.}
+SWOMP 반복 과정에서:
+\begin{itemize}
+    \item $\mathbf{R}^{(i)}$: $i$번째 반복 \textbf{후} 잔차 ($i=0$은 초기값 $\mathbf{V}$)
+    \item $\rho_j^{(i)}$: $i$번째 반복에서 코드북 $j$의 가중 내적 스코어
+\end{itemize}
+
+\paragraph{디지털 빔포밍 표기.}
+아날로그 빔포밍 $\mathbf{W}[\cdots]$에 대응하는 디지털 빔포밍:
+\begin{equation}
+\mathbf{B}[\cdots] = \mathbf{W}[\cdots]^{\dagger} \mathbf{V}
+\end{equation}
+
+예시:
+\begin{itemize}
+    \item $\mathbf{B}[a_1, \ldots, a_n] = \mathbf{W}[a_1, \ldots, a_n]^{\dagger} \mathbf{V}$
+    \item $\mathbf{B}[j\,\mathbf{1}_N] = \mathbf{W}[j\,\mathbf{1}_N]^{\dagger} \mathbf{V}$
+\end{itemize}
+
+\paragraph{표기법 장점.}
+\begin{itemize}
+    \item \textbf{추적 가능성}: 빔포밍 행렬을 보고 어떤 코드북들이 선택되었는지 즉시 파악
+    \item \textbf{Zero-based 안전}: $0$도 유효한 코드북, 미선택 레이어는 생략으로 혼란 방지
+    \item \textbf{SWOMP vs Greedy 구분}: $\mathbf{W}[j\,\mathbf{1}_N]$ (동일 할당) vs $\mathbf{W}[a_1, \ldots, a_n]$ (개별 선택)
+\end{itemize}
+
+\section{하이브리드 빔포밍 모델}
+
+\subsection{기본 모델}
+
+\paragraph{문제 정의.}
+P1P의 목표는 Wen2011로 얻은 최적 송신 공분산 $\mathbf{P}^{\star}$의 주요 고유벡터를 코드북 기반 하이브리드 빔포밍으로 근사하는 것이다.
+
+\paragraph{고유값 분해.}
+Wen2011 최적 공분산을 고유값 분해:
+\begin{equation}
+\mathbf{P}^{\star} = \mathbf{U}_{P} \boldsymbol{\Lambda}_{P} \mathbf{U}_{P}^{\mathsf{H}}
+\end{equation}
+여기서 $\boldsymbol{\Lambda}_{P} = \text{diag}(\lambda_1, \lambda_2, \ldots, \lambda_{n_{\text{AE}}})$, $\lambda_1 \geq \lambda_2 \geq \cdots \geq \lambda_{n_{\text{AE}}} \geq 0$
+
+\paragraph{목표 고유벡터.}
+MIMO 채널의 랭크는 송수신측 Layer 수의 최솟값으로 제한된다:
+\begin{equation}
+r_{\text{mode}} = \min(N_{\text{BS,Layer}}, N_{\text{UE,Layer}}) = \min(64, 4) = 4
+\end{equation}
+
+이는 UE의 최대 Layer 수(=4)에 의해 결정되며, MIMO 채널은 최대 4개의 독립적인 공간 모드만 지원할 수 있다. 따라서 최적 입력 공분산 $\mathbf{P}^{\star}$의 고유값 분해에서 상위 $r_{\text{mode}}$개 고유벡터만 물리적으로 의미가 있다. Wen2011은 이 $r_{\text{mode}}$개 모드 제약에 한해서 전력 조건을 만족하는 water-filling을 수행해야 한다.
+
+상위 $r_{\text{mode}}$개 고유벡터 추출:
+\begin{equation}
+\mathbf{V} = [\mathbf{v}_1, \mathbf{v}_2, \ldots, \mathbf{v}_{r_{\text{mode}}}] = \mathbf{U}_{P}[:, 1:r_{\text{mode}}] \in \mathbb{C}^{n_{\text{AE}} \times r_{\text{mode}}}
+\end{equation}
+
+여기서 $n_{\text{AE}}$는:
+\begin{itemize}
+    \item Stage 1 (UE): $n_{\text{AE}} = N_{\text{UE,AE}} = 16$
+    \item Stage 2 (BS): $n_{\text{AE}} = N_{\text{BS,AE}} = 1024$
+\end{itemize}
+
+대응 고유값: $\boldsymbol{\Lambda} = \text{diag}(\lambda_1, \lambda_2, \ldots, \lambda_{r_{\text{mode}}})$, $\lambda_1 \geq \cdots \geq \lambda_{r_{\text{mode}}} > 0$
+
+\paragraph{하이브리드 빔포밍 근사.}
+목표 고유벡터 $\mathbf{V}$를 아날로그 빔포밍 $\mathbf{W}$와 디지털 빔포밍 $\mathbf{B}$로 근사:
+\begin{equation}
+\mathbf{V} \approx \hat{\mathbf{V}} = \mathbf{W} \mathbf{B}
+\end{equation}
+
+\paragraph{차원 관계.}
+\begin{itemize}
+    \item $\mathbf{V} \in \mathbb{C}^{n_{\text{AE}} \times r_{\text{mode}}}$: 목표 고유벡터 ($r_{\text{mode}}=4$개 모드)
+    \item $\mathbf{W} \in \mathbb{C}^{n_{\text{AE}} \times n_{\text{active}}}$: 아날로그 빔포밍 ($n_{\text{active}}$개 활성 Layer)
+    \item $\mathbf{B} \in \mathbb{C}^{n_{\text{active}} \times r_{\text{mode}}}$: 디지털 빔포밍 (제약 없음)
+    \item $\hat{\mathbf{V}} \in \mathbb{C}^{n_{\text{AE}} \times r_{\text{mode}}}$: 근사된 고유벡터
+\end{itemize}
+
+\paragraph{활성 Layer 수 ($n_{\text{active}}$).}
+\begin{itemize}
+    \item $n_{\text{active}} \geq r_{\text{mode}}$: 활성 Layer가 많을수록 $\mathbf{V}$ 근사 정확도 향상
+    \item \textbf{UE}: $n_{\text{active}} = N_{\text{UE,Layer}} = 4$ (모든 Layer 사용, RF 하드웨어 모두 활용)
+    \item \textbf{BS}: $n_{\text{active}}$를 순차 증가 ($1, 2, \ldots$) 하여 RF 하드웨어 절약
+\end{itemize}
+
+\subsection{블록 대각 (blkdiag) 제약}
+
+\paragraph{하드웨어 제약.}
+하이브리드 빔포밍 시스템에서 각 활성 Layer는 독립적으로 하나의 아날로그 빔을 선택:
+\begin{equation}
+\mathbf{W} = \text{blkdiag}(\mathbf{w}_0, \mathbf{w}_1, \ldots, \mathbf{w}_{n_{\text{active}}-1}) \in \mathbb{C}^{n_{\text{AE}} \times n_{\text{active}}}
+\end{equation}
+
+\paragraph{Stage 1 (UE) - 모든 Layer 사용.}
+\begin{itemize}
+    \item $n_{\text{active}} = N_{\text{UE,Layer}} = 4$ (UE는 모든 4개 Layer 사용)
+    \item $n_{\text{AE}} = N_{\text{UE,AE}} = 4 \times 4 = 16$ (각 Layer당 4개 AE)
+    \item $\mathbf{w}_i \in \mathbb{C}^{4}$: $i$번째 UE Layer의 빔 벡터
+    \item $\mathbf{W}_{\text{UE}} = \text{blkdiag}(\mathbf{w}_0, \mathbf{w}_1, \mathbf{w}_2, \mathbf{w}_3) \in \mathbb{C}^{16 \times 4}$
+    \item $\mathbf{B}_{\text{UE}} \in \mathbb{C}^{4 \times 4}$ (정방행렬)
+\end{itemize}
+
+\paragraph{Stage 2 (BS) - 순차 Layer 추가.}
+\begin{itemize}
+    \item $n_{\text{active}} = n$ (순차적으로 증가: $1, 2, 3, \ldots$)
+    \item $n_{\text{AE}} = N_{\text{BS,AE}} = 64 \times 16 = 1024$ (전체 BS AE, 고정)
+    \item $\mathbf{w}_i \in \mathbb{C}^{16}$: $i$번째 활성 BS Layer의 빔 벡터
+    \item $\mathbf{W}_{\text{BS}}^{(n)} = \text{blkdiag}(\mathbf{w}_0, \ldots, \mathbf{w}_{n-1}, \mathbf{0}, \ldots, \mathbf{0}) \in \mathbb{C}^{1024 \times 64}$
+    \item $\mathbf{B}_{\text{BS}}^{(n)} \in \mathbb{C}^{64 \times 4}$ (디지털 빔포밍, least-squares)
+    \item $\mathbf{W}_{\text{BS}}^{(n)} \mathbf{B}_{\text{BS}}^{(n)} \in \mathbb{C}^{1024 \times 4} \approx \mathbf{V}_{\text{BS}}$
+\end{itemize}
+
+각 $\mathbf{w}_i$는 해당 측(UE/BS)의 DFT 코드북에서 선택:
+\begin{itemize}
+    \item UE: $\mathbf{w}_{\text{UE},i} = \mathbf{f}_{2,2,2,2}[\ell_i]$
+    \item BS: $\mathbf{w}_{\text{BS},i} = \mathbf{f}_{4,2,4,2}[k_i]$
+\end{itemize}
+
+\paragraph{차원 주의사항.}
+\begin{itemize}
+    \item \textbf{BS 전체 차원 유지}: $\mathbf{W}_{\text{BS}}^{(n)}$의 행 차원은 항상 $1024$ (전체 BS AE)
+    \item 활성 Layer 수가 적을수록 많은 원소가 0이 되지만, \textbf{차원은 변하지 않음}
+    \item blkdiag에서 비활성 Layer 위치는 자동으로 0으로 채워짐
+\end{itemize}
+
+\paragraph{블록 대각 구조 상세.}
+$\mathbf{W}$는 항상 고정된 크기이며, 비활성 Layer 위치에는 영벡터가 배치됨:
+
+\subparagraph{UE (모든 Layer 활성).}
+\begin{equation}
+\mathbf{W}_{\text{UE}} = \text{blkdiag}(\mathbf{f}_{2,2,2,2}[\ell_0], \mathbf{f}_{2,2,2,2}[\ell_1], \mathbf{f}_{2,2,2,2}[\ell_2], \mathbf{f}_{2,2,2,2}[\ell_3]) \in \mathbb{C}^{16 \times 4}
+\end{equation}
+각 $\mathbf{f}_{2,2,2,2}[\ell_i] \in \mathbb{C}^4$, 4개 Layer × 4개 AE = 16개 행, 4개 열
+
+\subparagraph{BS ($n$개 Layer 활성).}
+\begin{equation}
+\mathbf{W}_{\text{BS}}^{(n)} = \text{blkdiag}(\mathbf{f}_{4,2,4,2}[k_1], \ldots, \mathbf{f}_{4,2,4,2}[k_n], \mathbf{0}, \ldots, \mathbf{0}) \in \mathbb{C}^{1024 \times 64}
+\end{equation}
+\begin{itemize}
+    \item 활성: $\mathbf{f}_{4,2,4,2}[k_i] \in \mathbb{C}^{16}$ ($n$개)
+    \item 비활성: $\mathbf{0} \in \mathbb{C}^{16}$ ($(64-n)$개 영벡터)
+    \item 64개 Layer × 16개 AE = 1024개 행, 64개 열 (항상 고정)
+\end{itemize}
+
+\paragraph{차원 고정의 필요성.}
+$\mathbf{W}$의 크기는 Layer 활성화 여부와 무관하게 항상 고정되어야 Wen2011 변환 과정의 행렬 곱셈이 올바르게 작동한다.
+
+\subsection{최적화 목표}
+
+\paragraph{하이브리드 빔포밍 근사.}
+목표는 Wen2011 최적 고유벡터 $\mathbf{V}$를 블록 대각 아날로그 빔포밍 $\mathbf{W}$와 디지털 빔포밍 $\mathbf{B}$로 근사:
+\begin{equation}
+\mathbf{V} \approx \hat{\mathbf{V}} = \mathbf{W}\mathbf{B}
+\end{equation}
+
+여기서 $r_{\text{mode}} = \min(N_{\text{BS,Layer}}, N_{\text{UE,Layer}}) = 4$이고:
+\begin{itemize}
+    \item $\mathbf{V} \in \mathbb{C}^{n_{\text{AE}} \times r_{\text{mode}}}$: $r_{\text{mode}}$개 모드의 목표 고유벡터
+    \item $\mathbf{W} \in \mathbb{C}^{n_{\text{AE}} \times n_{\text{active}}}$: 블록 대각 아날로그 빔포밍
+    \item $\mathbf{B} \in \mathbb{C}^{n_{\text{active}} \times r_{\text{mode}}}$: 디지털 빔포밍
+\end{itemize}
+
+\paragraph{제약 조건.}
+\begin{itemize}
+    \item $\mathbf{W} = \text{blkdiag}(\mathbf{w}_0, \ldots, \mathbf{w}_{n_{\text{active}}-1})$: 블록 대각 구조
+    \item 각 $\mathbf{w}_i$는 해당 측의 코드북에서 선택:
+    \begin{itemize}
+        \item UE: $\mathbf{w}_i = \mathbf{f}_{2,2,2,2}[\ell_i]$, $\ell_i \in \{0, \ldots, 15\}$
+        \item BS: $\mathbf{w}_i = \mathbf{f}_{4,2,4,2}[k_i]$, $k_i \in \{0, \ldots, 63\}$
+    \end{itemize}
+    \item $\mathbf{B} = \mathbf{W}^{\dagger} \mathbf{V}$: 제약 없음 (least-squares 최적해)
+\end{itemize}
+
+\paragraph{디지털 빔포밍 최적해.}
+고정된 $\mathbf{W}$에 대해 $\mathbf{B}$의 최적해는 least-squares:
+\begin{equation}
+\mathbf{B}^{\star} = (\mathbf{W}^{\mathsf{H}} \mathbf{W})^{-1} \mathbf{W}^{\mathsf{H}} \mathbf{V} = \mathbf{W}^{\dagger} \mathbf{V}
+\end{equation}
+
+따라서 최적화는 $\mathbf{W}$ 선택 문제로 단순화된다. 하지만 전수탐색은 비현실적:
+\begin{itemize}
+    \item UE: $16^4 \approx 65,000$ 경우의 수
+    \item BS: $64^{64} \approx 10^{115}$ 경우의 수
+\end{itemize}
+
+\section{입력 데이터}
+
+P1A 레이트레이싱에서 추정된 채널 통계 (P1I):
+\begin{itemize}
+    \item $\mathbf{U}_{\text{BS}}, \mathbf{U}_{\text{UE}}$: 고유벡터 행렬
+    \item $\boldsymbol{\Omega}_{\text{UL}}$: 업링크 커플링 행렬
+    \item $\bar{\mathbf{H}}_{\text{UL}}$: 업링크 평균 채널
+\end{itemize}
+
+P1P는 이 파라미터들로부터 업링크/다운링크 양방향 코드북 할당을 수행한다.
+
+\section{2단계 코드북 선택 알고리즘}
+
+\subsection{목적 및 동기}
+
+\paragraph{하이브리드 빔포밍 구현 문제.}
+최적 고유벡터 $\mathbf{V} = [\mathbf{v}_1, \ldots, \mathbf{v}_{r_{\text{mode}}}]$를 블록 대각 구조 $\mathbf{W}$와 디지털 빔포밍 $\mathbf{B}$로 근사하여, 에르고딕 채널 용량을 최대화:
+\begin{equation}
+\max_{\mathbf{W}, \mathbf{B}} \text{Wen2011\_Capacity}(\mathbf{U}_{\text{BS}}, \mathbf{U}_{\text{UE}}, \boldsymbol{\Omega}, \bar{\mathbf{H}}, \mathbf{W})
+\end{equation}
+
+\begin{itemize}
+    \item $\mathbf{W} = \text{blkdiag}(\mathbf{w}_0, \mathbf{w}_1, \ldots, \mathbf{w}_{N_{\text{Layer}}-1})$
+    \begin{itemize}
+        \item Stage 1: $N_{\text{Layer}} = N_{\text{UE,Layer}} = 4$
+        \item Stage 2: $N_{\text{Layer}} = N_{\text{BS,Layer}} = 64$
+    \end{itemize}
+    \item 각 Layer의 빔 $\mathbf{w}_i$는 해당 측의 코드북에서 선택:
+    \begin{itemize}
+        \item UE: $\mathbf{w}_i = \mathbf{f}_{2,2,2,2}[\ell_i]$ (코드북 $\mathbf{F}_{2,2,2,2}$)
+        \item BS: $\mathbf{w}_i = \mathbf{f}_{4,2,4,2}[k_i]$ (코드북 $\mathbf{F}_{4,2,4,2}$)
+    \end{itemize}
+    \item 디지털 빔포밍: $\mathbf{B} = \mathbf{W}^{\dagger} \mathbf{V}$ (least-squares)
+\end{itemize}
+
+\paragraph{조합 최적화의 어려움.}
+완전 탐색은 비현실적이다:
+\begin{itemize}
+    \item UE: $16^4 \approx 65,000$ 경우의 수
+    \item BS: $64^{64} \approx 10^{115}$ 경우의 수
+\end{itemize}
+
+\paragraph{2단계 SWOMP 해법.}
+효율적인 Greedy 선택을 위해 2단계 접근:
+\begin{itemize}
+    \item Stage 1: 전체 Layer 공통 SWOMP로 후보 생성 (고유값 가중 내적, UE: 4개 고정, BS: 4~32개 adaptive)
+    \item Stage 2: 공통 후보 풀에서 Wen2011 에르고딕 용량 기준 Greedy 레이어별 선택 (BS는 Layer 1 후 필터링)
+    \item 계산 복잡도: $O(n_{\text{cand}} \times N_{\text{Codebook}})$ + $O(N_{\text{Layer}} \times n_{\text{filtered}} \times \text{Wen2011\_call})$
+    \item 품질: 고유값 가중 + 공통 후보 + adaptive stopping $\rightarrow$ 시스템 전체 최적화
+    \item Stage 1 계산량 대폭 감소: UE (256→64), BS (16,384→256~2,048, adaptive)
+\end{itemize}
+
+\subsection{용량 최대화 문제}
+
+\paragraph{주어진 것 (Given).}
+\begin{itemize}
+    \item $\mathbf{V} = [\mathbf{v}_1, \ldots, \mathbf{v}_{r_{\text{mode}}}] \in \mathbb{C}^{n_{\text{AE}} \times r_{\text{mode}}}$: 목표 고유벡터 (Wen2011 최적 입력 공분산으로부터)
+    \item Wen2011 통계 파라미터: $\{\mathbf{U}_{\text{BS}}, \mathbf{U}_{\text{UE}}, \boldsymbol{\Omega}, \bar{\mathbf{H}}\}$ (바이히셀베르거 모델)
+    \item $r_{\text{mode}} = \min(N_{\text{BS,Layer}}, N_{\text{UE,Layer}}) = 4$: 전송 모드 수 (채널 랭크 제한)
+    \item Stage별 파라미터:
+    \begin{itemize}
+        \item \textbf{Stage 1 (UE):} $N_{\text{Layer}} = N_{\text{UE,Layer}} = 4$, $n_{\text{AE}} = N_{\text{UE,AE}} = 16$, $N_{\text{Layer,AE}} = N_{\text{UE,Layer,AE}} = 4$, 코드북: $\mathbf{F}_{2,2,2,2} \in \mathbb{C}^{4 \times 16}$
+        \item \textbf{Stage 2 (BS):} $N_{\text{Layer}} = N_{\text{BS,Layer}} = 64$, $n_{\text{AE}} = N_{\text{BS,AE}} = 1024$, $N_{\text{Layer,AE}} = N_{\text{BS,Layer,AE}} = 16$, 코드북: $\mathbf{F}_{4,2,4,2} \in \mathbb{C}^{16 \times 64}$
+    \end{itemize}
+    \item 레이어당 후보 수: UE는 $r_{\text{mode}}$개 고정, BS는 $n_{\text{cand}}$개 (4~32개, adaptive)
+\end{itemize}
+
+\paragraph{찾는 것 (Find).}
+\begin{itemize}
+    \item \textbf{Stage 1 (UE):} 코드북 할당 $\boldsymbol{\ell}_{\text{UE}}^{\star} = [\ell_0, \ell_1, \ell_2, \ell_3]$, $\ell_i \in \{0, \ldots, 15\}$ (UE는 4개 Layer 모두 사용, 코드북 크기 16)
+    \item \textbf{Stage 2 (BS):} 코드북 할당 $\boldsymbol{k}_{\text{BS},n}^{\star} = [k_1, k_2, \ldots, k_n]$, $k_i \in \{0, \ldots, 63\}$ (BS는 $n$개 Layer 사용, $k_i$는 greedy add, 코드북 크기 64)
+\end{itemize}
+
+\paragraph{최대화 (Maximize).}
+Wen2011 에르고딕 용량 최대화:
+\begin{equation}
+C_{\text{ergodic}} = \text{Wen2011\_Capacity}(\mathbf{U}_{\text{BS}}, \mathbf{U}_{\text{UE}}, \boldsymbol{\Omega}, \bar{\mathbf{H}}, \mathbf{W}_{\text{BS}}, \mathbf{W}_{\text{UE}})
+\end{equation}
+
+여기서:
+\begin{itemize}
+    \item $\mathbf{V}$는 Wen2011이 바이히셀베르거 통계 파라미터로부터 계산한 최적 입력 공분산의 주요 고유벡터
+    \item 목표: $\mathbf{V} \approx \mathbf{W}\mathbf{B}$ 근사를 통해 코드북 제약 하 에르고딕 용량 최대화
+    \item 실제 용량 평가는 Wen2011 함수를 통해 빔 도메인 변환된 통계 파라미터로 계산 (순시 채널 $\mathbf{H}$가 아님)
+\end{itemize}
+
+\paragraph{제약 조건 (Subject to).}
+\begin{itemize}
+    \item \textbf{Stage 1 (UE):}
+    \begin{align}
+    \mathbf{W}_{\text{UE}} &= \text{blkdiag}(\mathbf{f}_{2,2,2,2}[\ell_0], \mathbf{f}_{2,2,2,2}[\ell_1], \mathbf{f}_{2,2,2,2}[\ell_2], \mathbf{f}_{2,2,2,2}[\ell_3]) \in \mathbb{C}^{16 \times 4} \\
+    \mathbf{B}_{\text{UE}} &= \mathbf{W}_{\text{UE}}^{\dagger} \mathbf{V}_{\text{UE}} \in \mathbb{C}^{4 \times 4} \quad \text{(least-squares)}
+    \end{align}
+    
+    \item \textbf{Stage 2 (BS):}
+    \begin{align}
+    \mathbf{W}_{\text{BS}}^{(n)} &= \text{blkdiag}(\mathbf{f}_{4,2,4,2}[k_1], \ldots, \mathbf{f}_{4,2,4,2}[k_n], \mathbf{0}, \ldots, \mathbf{0}) \in \mathbb{C}^{1024 \times 64} \\
+    \mathbf{B}_{\text{BS}}^{(n)} &= (\mathbf{W}_{\text{BS}}^{(n)})^{\dagger} \mathbf{V}_{\text{BS}} \in \mathbb{C}^{64 \times 4} \quad \text{(least-squares)}
+    \end{align}
+\end{itemize}
+
+\subsection{2단계 빔 선택: SWOMP 후보 생성 + 용량 최적화}
+
+본 알고리즘은 블록대각 제약 하에서 $\mathbf{V} \approx \mathbf{W}\mathbf{B}$를 근사하기 위해 2단계 접근 방식을 사용한다:
+\begin{itemize}
+    \item \textbf{Stage 1}: 전체 Layer 공통 SWOMP로 $r_{\text{mode}}$개 후보 생성 (고유값 가중 내적 기반)
+    \item \textbf{Stage 2}: 공통 후보 풀 내에서 실제 채널 용량을 기준으로 Greedy 레이어별 선택
+\end{itemize}
+
+\paragraph{최적화 문제.}
+다음 문제를 해결한다:
+\begin{equation}
+\max_{\mathbf{W}, \mathbf{B}} \text{Wen2011\_Capacity}(\mathbf{U}_{\text{BS}}, \mathbf{U}_{\text{UE}}, \boldsymbol{\Omega}, \bar{\mathbf{H}}, \mathbf{W})
+\end{equation}
+\begin{align}
+\text{subject to} \quad & \mathbf{W} = \text{blkdiag}(\mathbf{f}[\ell_0], \ldots, \mathbf{f}[\ell_{N_{\text{Layer}}-1}]) \in \mathbb{C}^{n_{\text{AE}} \times N_{\text{Layer}}} \\
+& \mathbf{B} = \mathbf{W}^{\dagger} \mathbf{V} \in \mathbb{C}^{N_{\text{Layer}} \times r_{\text{mode}}}
+\end{align}
+
+여기서 $\mathbf{V}$는 Wen2011 최적화에서 얻은 목표 고유벡터 행렬이며, 에르고딕 용량은 Weichselberger 통계 파라미터 $(\mathbf{U}_{\text{BS}}, \mathbf{U}_{\text{UE}}, \boldsymbol{\Omega}, \bar{\mathbf{H}})$와 빔포밍 행렬 $\mathbf{W}$로부터 계산된다 (순시 채널 $\mathbf{H}$가 아님).
+
+\subsubsection{Stage 1: SWOMP 공통 후보 생성}
+
+전체 Layer가 공유할 $r_{\text{mode}}$개의 최적 코드북 후보를 선정한다. 각 후보는 고유값 가중치를 고려한 가중 내적을 최대화하도록 선택된다.
+
+\paragraph{입력.}
+\begin{itemize}
+    \item $\mathbf{V} \in \mathbb{C}^{n_{\text{AE}} \times r_{\text{mode}}}$: 목표 고유벡터
+    \item $\boldsymbol{\Lambda} = \text{diag}(\lambda_1, \ldots, \lambda_{r_{\text{mode}}})$: 고유값 (내림차순)
+    \item 코드북: UE는 $\mathbf{F}_{2,2,2,2} \in \mathbb{C}^{4 \times 16}$, BS는 $\mathbf{F}_{4,2,4,2} \in \mathbb{C}^{16 \times 64}$
+    \item $N_{\text{Layer}}$: UE는 4, BS는 64
+\end{itemize}
+
+\paragraph{가중치 행렬.}
+고유값의 제곱근으로 대각 가중치 행렬 구성:
+\begin{equation}
+\mathbf{D} = \text{diag}(\sqrt{\lambda_1}, \sqrt{\lambda_2}, \ldots, \sqrt{\lambda_{r_{\text{mode}}}}) \in \mathbb{R}^{r_{\text{mode}} \times r_{\text{mode}}}
+\end{equation}
+
+\paragraph{Adaptive Stopping (BS 전용).}
+BS Stage 2는 adaptive stopping을 사용하여 계산량과 품질을 균형:
+\begin{itemize}
+    \item \textbf{UE}: $n_{\text{cand}} = r_{\text{mode}} = 4$ (고정, adaptive 없음)
+    \item \textbf{BS}: $n_{\text{cand,max}} = 32$, 잔차 threshold $\tau = 0.05$
+    \item \textbf{조기 종료 조건}: $i \geq r_{\text{mode}}$이고 $\frac{\|\mathbf{R}^{(i)}\|_{\text{F}}}{\|\mathbf{V}\|_{\text{F}}} < \tau$
+    \item \textbf{가중 전략}:
+    \begin{itemize}
+        \item $n_{\text{cand}} = r_{\text{mode}}$: eigenvalue weighting $\mathbf{D} = \text{diag}(\sqrt{\lambda_i})$
+        \item $n_{\text{cand}} > r_{\text{mode}}$: uniform weighting $\mathbf{D} = \mathbf{I}$ (extended search)
+    \end{itemize}
+\end{itemize}
+
+Adaptive 이유: BS는 64 Layer로 후보 공유 범위가 넓어, 초기 4개만으로 부족할 수 있음. 잔차 기반 조기 종료로 불필요한 계산 방지.
+
+\paragraph{SWOMP 반복.}
+초기화: $\mathbf{R}^{(0)} \gets \mathbf{V}$, $\mathcal{C} \gets \emptyset$, $\|\mathbf{V}\|_0 \gets \|\mathbf{V}\|_{\text{F}}$
+
+\textbf{For} $i = 1$ to $n_{\text{cand,max}}$: (adaptive: UE는 $r_{\text{mode}}$, BS는 32)
+
+\subparagraph{1. 가중 내적 계산 (모든 코드북).}
+각 코드북 $j \in \{0, \ldots, N_{\text{Codebook}}-1\}$에 대해:
+
+\textbf{Step 1a:} 모든 Layer에 동일하게 할당 (Section 2.4 표기법 참조)
+\begin{itemize}
+    \item UE: $\mathbf{W}_{\text{UE}}[j\,\mathbf{1}_4] = \text{blkdiag}(\mathbf{f}_{2,2,2,2}[j], \mathbf{f}_{2,2,2,2}[j], \mathbf{f}_{2,2,2,2}[j], \mathbf{f}_{2,2,2,2}[j]) \in \mathbb{C}^{16 \times 4}$
+    \item BS: $\mathbf{W}_{\text{BS}}[j\,\mathbf{1}_{64}] = \text{blkdiag}(\mathbf{f}_{4,2,4,2}[j], \ldots, \mathbf{f}_{4,2,4,2}[j]) \in \mathbb{C}^{1024 \times 64}$ (64개 반복)
+\end{itemize}
+
+여기서 $\mathbf{W}[j\,\mathbf{1}_N]$은 ``코드북 $j$를 모든 $N$개 레이어에 동일 할당''을 의미한다.
+
+\textbf{Step 1b:} 가중 내적 계산
+\begin{equation}
+\rho_j^{(i)} = \|\mathbf{W}[j\,\mathbf{1}_N]^{\mathsf{H}} \mathbf{R}^{(i-1)} \mathbf{D}\|_{\text{F}}^2, \quad i = 1,2,\ldots, r_{\text{mode}}
+\end{equation}
+
+차원 분석:
+\begin{itemize}
+    \item UE: $\mathbf{W}_{\text{UE}}[j\,\mathbf{1}_4]^{\mathsf{H}} \mathbf{R}^{(i-1)} \in \mathbb{C}^{4 \times 4}$, $\mathbf{W}_{\text{UE}}[j\,\mathbf{1}_4]^{\mathsf{H}} \mathbf{R}^{(i-1)} \mathbf{D} \in \mathbb{C}^{4 \times 4}$
+    \item BS: $\mathbf{W}_{\text{BS}}[j\,\mathbf{1}_{64}]^{\mathsf{H}} \mathbf{R}^{(i-1)} \in \mathbb{C}^{64 \times 4}$, $\mathbf{W}_{\text{BS}}[j\,\mathbf{1}_{64}]^{\mathsf{H}} \mathbf{R}^{(i-1)} \mathbf{D} \in \mathbb{C}^{64 \times 4}$
+\end{itemize}
+
+\subparagraph{2. 최대 가중 내적 코드북 선택.}
+\begin{equation}
+j_i = \arg\max_{j \in \{0, \ldots, N_{\text{Codebook}}-1\}} \rho_j^{(i)}
+\end{equation}
+
+후보 풀에 추가: $\mathcal{C} \gets \mathcal{C} \cup \{j_i\}$
+
+\subparagraph{3. 디지털 빔포머 계산 (Least-Squares).}
+선택된 코드북 $j_i$로 빔포밍 행렬 구성:
+\begin{equation}
+\mathbf{W}[j_i\,\mathbf{1}_N] = \text{blkdiag}(\mathbf{f}[j_i], \mathbf{f}[j_i], \ldots, \mathbf{f}[j_i]) \quad (N_{\text{Layer}}\text{개 반복})
+\end{equation}
+
+디지털 빔포머:
+\begin{equation}
+\mathbf{B} = \mathbf{W}[j_i\,\mathbf{1}_N]^{\dagger} \mathbf{R}^{(i-1)}
+\end{equation}
+
+\subparagraph{4. 잔차 업데이트.}
+\begin{equation}
+\mathbf{R}^{(i)} = \mathbf{R}^{(i-1)} - \mathbf{W}[j_i\,\mathbf{1}_N] \mathbf{B}
+\end{equation}
+
+\subparagraph{5. Adaptive 조기 종료 (BS 전용).}
+\begin{equation}
+\text{if } i \geq r_{\text{mode}} \text{ and } \frac{\|\mathbf{R}^{(i)}\|_{\text{F}}}{\|\mathbf{V}\|_0} < \tau: \quad n_{\text{cand}} \gets i, \text{ break}
+\end{equation}
+
+\paragraph{출력.}
+공통 후보 풀: $\mathcal{C} = \{j_1, j_2, \ldots, j_{n_{\text{cand}}}\}$ (UE: 4개 고정, BS: 4~32개 adaptive)
+
+\paragraph{핵심 특징.}
+\begin{itemize}
+    \item \textbf{모든 Layer 동일 할당}: 각 코드북 $j$를 모든 $N_{\text{Layer}}$개 Layer에 동일하게 할당하여 평가
+    \item \textbf{고유값 가중}: $\mathbf{D} = \text{diag}(\sqrt{\lambda_1}, \ldots, \sqrt{\lambda_{r_{\text{mode}}}})$로 중요한 모드에 가중
+    \item \textbf{SWOMP 직교화}: 잔차 업데이트로 선택된 방향을 제거하여 다음 반복에서 직교 방향 선택
+    \item \textbf{공통 후보}: 모든 Layer가 동일한 후보 풀 $\mathcal{C}$를 공유
+    \item \textbf{계산량 감소}: UE (256→64), BS (16,384→256)
+\end{itemize}
+
+\subsubsection{Stage 2: 용량 기반 Greedy 선택}
+
+각 Layer를 순차적으로 추가하되, 공통 후보 풀 $\mathcal{C}$ 내에서 실제 채널 용량을 최대화하는 빔을 선택한다.
+
+\paragraph{후보 필터링 (BS Layer 1 후).}
+BS Stage 2는 Layer 1 선택 후 공통 후보를 용량 기준으로 필터링:
+\begin{enumerate}
+    \item Layer 1: 전체 공통 후보 $\mathcal{C}$ (4~32개)에서 용량 최대화 빔 선택
+    \item 각 후보 $w \in \mathcal{C}$의 용량 $C(w)$ 계산
+    \item 용량 상위 $r_{\text{mode}}=4$개 후보로 필터링: $\mathcal{C}_{\text{filtered}} \gets \text{top-}r_{\text{mode}}(\mathcal{C})$
+    \item Layer 2~64: $\mathcal{C}_{\text{filtered}}$ 내에서만 선택
+\end{enumerate}
+
+필터링 이유: BS는 Layer가 많아 초기 후보가 많을 수 있음. Layer 1에서 실제 용량으로 검증 후 상위 4개만 사용하여 계산 효율성 확보.
+
+UE는 필터링 없음 (공통 후보가 이미 4개).
+
+\paragraph{$i$번째 레이어 선택 ($i = 0, 1, \ldots, N_{\text{Layer}}-1$).}
+이미 Layer $0, \ldots, i-1$의 빔 $\ell_0, \ldots, \ell_{i-1}$을 선택한 상태에서, Layer $i$의 빔 $\ell_i$를 공통 후보 풀 $\mathcal{C}$에서 선택한다 (Section 2.4 표기법 참조).
+
+\subparagraph{후보 평가.}
+각 후보 $w \in \mathcal{C}$에 대해 테스트 빔포밍 행렬 구성:
+\begin{align}
+\mathbf{W}[\ell_0, \ldots, \ell_{i-1}, w] &= \text{blkdiag}(\mathbf{f}[\ell_0], \ldots, \mathbf{f}[\ell_{i-1}], \mathbf{f}[w], \mathbf{0}, \ldots, \mathbf{0}) \\
+\mathbf{B}[\ell_0, \ldots, \ell_{i-1}, w] &= \mathbf{W}[\ell_0, \ldots, \ell_{i-1}, w]^{\dagger} \mathbf{V}
+\end{align}
+
+여기서 대괄호 안에 $i$개 인덱스가 있으므로 처음 $i$개 레이어만 활성화되고, 나머지는 자동으로 $\mathbf{0}$ 벡터이다.
+
+\subparagraph{에르고딕 용량 평가.}
+\begin{equation}
+C(w) = \text{Wen2011\_Capacity}(\mathbf{U}_{\text{BS}}, \mathbf{U}_{\text{UE}}, \boldsymbol{\Omega}, \bar{\mathbf{H}}, \mathbf{W}[\ell_0, \ldots, \ell_{i-1}, w], \mathbf{W}_{\text{fixed}})
+\end{equation}
+
+여기서:
+\begin{itemize}
+    \item $\mathbf{W}[\ell_0, \ldots, \ell_{i-1}, w]$: 선택 대상 빔포밍 행렬 (Stage 1: UE, Stage 2: BS)
+    \item $\mathbf{W}_{\text{fixed}}$: 고정된 반대측 빔포밍 (Stage 1: $\mathbf{W}_{\text{BS}} = \mathbf{I}$, Stage 2: $\mathbf{W}_{\text{UE}}^{\star}$)
+    \item 빔 도메인 변환: $\mathbf{W}[\ell_0, \ldots, \ell_{i-1}, w]$를 바이히셀베르거 통계 파라미터에 적용
+    \item 에르고딕 용량 계산: Wen2011 함수로 통계적 채널 모델 기반 평가 (순시 채널 아님)
+\end{itemize}
+
+\subparagraph{최적 빔 선택.}
+\begin{equation}
+\ell_i = \arg\max_{w \in \mathcal{C}} C(w)
+\end{equation}
+
+\subparagraph{특징.}
+\begin{itemize}
+    \item \textbf{공통 후보 풀}: 모든 Layer가 동일한 $\mathcal{C}$에서 선택 (코드북 중복 할당 가능)
+    \item Wen2011 에르고딕 용량 기반 평가 (순시 채널이 아님)
+    \item 이미 선택된 빔 $\{\ell_0, \ldots, \ell_{i-1}\}$과의 조합 효과 고려
+    \item Least-squares $\mathbf{B}^{(i)}$가 모든 빔의 협력 최적화
+    \item 계산 복잡도: $O(N_{\text{Layer}} \times r_{\text{mode}} \times \text{Wen2011\_call})$
+\end{itemize}
+
+\subsection{2단계 빔 선택 알고리즘}
+
+\begin{algorithm}[H]
+\caption{Two-Stage SWOMP Beam Selection}
+\begin{algorithmic}[1]
+\STATE \textbf{Input:} $\mathbf{V} \in \mathbb{C}^{n_{\text{AE}} \times r_{\text{mode}}}$, $\boldsymbol{\Lambda} = \text{diag}(\lambda_1, \ldots, \lambda_{r_{\text{mode}}})$,
+\STATE \quad\quad\quad Wen2011 파라미터 $\{\mathbf{U}_{\text{BS}}, \mathbf{U}_{\text{UE}}, \boldsymbol{\Omega}, \bar{\mathbf{H}}\}$,
+\STATE \quad\quad\quad 코드북 $\mathbf{F}$, $N_{\text{Layer}}$, $N_{\text{Codebook}}$
+\STATE \quad\quad\quad 고정 빔포밍: $\mathbf{W}_{\text{fixed}}$ (Stage 1: $\mathbf{W}_{\text{BS}} = \mathbf{I}$, Stage 2: $\mathbf{W}_{\text{UE}}^{\star}$)
+\STATE \textbf{Output:} 빔 인덱스 벡터 $\boldsymbol{\ell}^{\star} = [\ell_0, \ell_1, \ldots, \ell_{N_{\text{Layer}}-1}]$
+\STATE
+\STATE \textbf{// Stage 1: SWOMP 공통 후보 생성}
+\STATE $\mathbf{R}^{(0)} \gets \mathbf{V}$, $\mathcal{C} \gets \emptyset$, $\|\mathbf{V}\|_0 \gets \|\mathbf{V}\|_{\text{F}}$
+\STATE $\mathbf{D} \gets \text{diag}(\sqrt{\lambda_1}, \ldots, \sqrt{\lambda_{r_{\text{mode}}}})$
+% Note: 주석은 \FOR 바로 뒤에 둘 수 없음 (algorithmic 패키지 제약)
+\FOR{$i = 1$ to $n_{\text{cand,max}}$}
+    \FOR{$j = 0$ to $N_{\text{Codebook}}-1$}
+        \STATE $\mathbf{W}[j\,\mathbf{1}_N] \gets \text{blkdiag}(\mathbf{f}[j], \mathbf{f}[j], \ldots, \mathbf{f}[j])$ \quad ($N_{\text{Layer}}$개 반복)
+        \STATE $\rho_j^{(i)} \gets \|\mathbf{W}[j\,\mathbf{1}_N]^{\mathsf{H}} \mathbf{R}^{(i-1)} \mathbf{D}\|_{\text{F}}^2$
+    \ENDFOR
+    \STATE $j_i \gets \arg\max_j \rho_j^{(i)}$
+    \STATE $\mathcal{C} \gets \mathcal{C} \cup \{j_i\}$
+    \STATE \textbf{// 잔차 업데이트}
+    \STATE $\mathbf{B} \gets \mathbf{W}[j_i\,\mathbf{1}_N]^{\dagger} \mathbf{R}^{(i-1)}$
+    \STATE $\mathbf{R}^{(i)} \gets \mathbf{R}^{(i-1)} - \mathbf{W}[j_i\,\mathbf{1}_N] \mathbf{B}$
+    \STATE \textcolor{gray}{\# Adaptive stopping (BS only)}
+    % Note: \IF 조건은 하나의 수식 모드로 통합해야 함 (수식 모드 분리 시 컴파일 에러)
+    \IF{$i \geq r_{\text{mode}} \text{ and } \|\mathbf{R}^{(i)}\|_{\text{F}} / \|\mathbf{V}\|_{\text{F}} < \tau$}
+        \STATE $n_{\text{cand}} \gets i$, \textbf{break}
+    \ENDIF
+\ENDFOR
+\STATE
+\STATE \textbf{// Stage 2: 레이어 순차 Greedy 선택}
+\STATE $\boldsymbol{\ell}^{\star} \gets$ 빈 배열
+\FOR{$i = 0$ to $N_{\text{Layer}}-1$}
+    \STATE \textcolor{gray}{\# BS only: Filter after Layer 1}
+    \IF{$i = 1$}
+        \STATE Sort $\mathcal{C}$ by $C_k$, keep top $r_{\text{mode}}$ candidates
+    \ENDIF
+    \STATE $C_{\text{best}} \gets -\infty$
+    \FOR{$k \in \mathcal{C}$}
+        \STATE $\mathbf{W}_{\text{test}} \gets \mathbf{W}[\ell_0^{\star}, \ldots, \ell_{i-1}^{\star}, k]$ \quad ($i$개 선택 + 후보 $k$ 테스트)
+        \STATE $\mathbf{B}_{\text{test}} \gets \mathbf{W}_{\text{test}}^{\dagger} \mathbf{V}$
+        \STATE $C_k \gets \text{Wen2011\_Capacity}(\mathbf{U}_{\text{BS}}, \mathbf{U}_{\text{UE}}, \boldsymbol{\Omega}, \bar{\mathbf{H}}, \mathbf{W}_{\text{test}}, \mathbf{W}_{\text{fixed}})$
+        \IF{$C_k > C_{\text{best}}$}
+            \STATE $\ell_i^{\star} \gets k$, $C_{\text{best}} \gets C_k$
+        \ENDIF
+    \ENDFOR
+\ENDFOR
+\STATE
+\RETURN $\boldsymbol{\ell}^{\star}$
+\end{algorithmic}
+\end{algorithm}
+
+\paragraph{알고리즘 특징.}
+\begin{itemize}
+    \item \textbf{SWOMP 공통 후보}: 전체 Layer가 동일한 후보 풀 $\mathcal{C}$ 공유, 고유값 가중 내적으로 선택
+    \item \textbf{용량 기반 선택}: Wen2011 에르고딕 용량으로 빔 품질 평가
+    \item \textbf{Greedy 조합 탐색}: 이미 선택된 빔과의 누적 효과를 고려
+    \item \textbf{계산 복잡도}: Stage 1 $O(r_{\text{mode}} \times N_{\text{Codebook}})$ + Stage 2 $O(N_{\text{Layer}} \times r_{\text{mode}} \times \text{Wen2011\_call})$
+    \item \textbf{계산량 대폭 감소}: Stage 1에서 UE (256→64, 75\%), BS (16,384→256, 98.4\%)
+    \item \textbf{직교화}: SWOMP 잔차 업데이트로 선택된 방향 제거, 다음 반복에서 직교 방향 선택
+\end{itemize}
+
+\subsection{알고리즘 특징}
+
+\paragraph{SWOMP 고유값 가중.}
+Stage 1에서 모든 코드북을 전체 Layer에 동일 할당하고, 고유값 가중 내적 $\|\mathbf{W}[j\,\mathbf{1}_N]^{\mathsf{H}} \mathbf{R}^{(i)} \mathbf{D}\|_{\text{F}}^2$로 평가. $\mathbf{D} = \text{diag}(\sqrt{\lambda_1}, \ldots, \sqrt{\lambda_{r_{\text{mode}}}})$로 중요 모드 강조.
+
+\paragraph{잔차 직교화.}
+각 반복에서 선택된 방향 제거: $\mathbf{R}^{(i)} = \mathbf{R}^{(i-1)} - \mathbf{W}[j^{\star}\,\mathbf{1}_N] \mathbf{B}[j^{\star}\,\mathbf{1}_N]$. 다음 반복에서 직교 방향 선택 보장.
+
+\paragraph{공통 후보 생성.}
+$r_{\text{mode}}$번 반복 후 전체 Layer 공통 후보 풀 $\mathcal{C} = \{j_1, \ldots, j_{r_{\text{mode}}}\}$ 생성. 모든 Layer가 동일한 후보 공유.
+
+\paragraph{Greedy 용량 최적화.}
+Stage 2에서 공통 후보 중 Wen2011 에르고딕 용량 최대화 빔을 각 Layer에 순차 할당. 블록대각 구조와 디지털 빔포밍 협력으로 효율적 근사.
+
+\paragraph{계산 복잡도.}
+완전 탐색 $O(N_{\text{Codebook}}^{N_{\text{Layer}}})$ vs 본 알고리즘 $O(r_{\text{mode}} \times N_{\text{Codebook}} + N_{\text{Layer}} \times r_{\text{mode}})$. UE Stage 1: 256→64 (75\%), BS Stage 1: 16,384→256 (98.4\%) 계산 감소.
+
+\section{Stage 1: 업링크 UE 코드북 할당}
+
+\subsection{개요}
+
+업링크 시나리오에서 UE 4개 Layer에 각각 최적 코드북을 할당한다. 초기 상태에서 빔포밍 행렬 없이 ($\mathbf{W}_{\text{BS}} = \mathbf{I}$, $\mathbf{W}_{\text{UE}} = \mathbf{I}$) 채널 통계로부터 Wen2011 최적 입력 공분산을 계산하고, 고유값 분해 후 2단계 코드북 선택 알고리즘으로 각 Layer에 코드북을 할당한다.
+
+\subsection{초기화 및 Wen2011 최적 입력 공분산}
+
+\paragraph{초기 조건.}
+빔 선택 전이므로 빔포밍 행렬이 없다. 따라서 업링크 채널 통계를 직접 사용:
+\begin{itemize}
+    \item $\mathbf{W}_{\text{BS}} = \mathbf{I}_{N_{\text{BS,AE}}}$, $\mathbf{W}_{\text{UE}} = \mathbf{I}_{N_{\text{UE,AE}}}$ (단위행렬)
+    \item 빔 도메인 파라미터: $\mathbf{U}_{\text{BS}}, \mathbf{U}_{\text{UE}}, \boldsymbol{\Omega}_{\text{UL}}, \bar{\mathbf{H}}_{\text{UL}}$ (P1I 입력 그대로)
+\end{itemize}
+
+\paragraph{초기화 및 Wen2011 최적화.}
+Stage 1에서 UE의 최적 송신 공분산 $\mathbf{P}_{\text{UE}}^{\star}$를 구한다:
+\begin{itemize}
+    \item 전송 모드: $r_{\text{mode}} = \min(N_{\text{BS,Layer}}, N_{\text{UE,Layer}}) = \min(64, 4) = 4$
+    \item 전력 제약: $\text{tr}(\mathbf{P}_{\text{UE}}^{\star}) \leq P_{\text{total,UE}}$
+    \item Wen2011 최적화: water-filling으로 상위 $r_{\text{mode}}$개 고유값에 전력 집중
+\end{itemize}
+
+\begin{equation}
+\mathbf{P}_{\text{UE}}^{\star}, C_{\text{UE}} = \text{Wen2011}(\mathbf{U}_{\text{BS}}, \mathbf{U}_{\text{UE}}, \boldsymbol{\Omega}_{\text{UL}}, \bar{\mathbf{H}}_{\text{UL}})
+\end{equation}
+
+\subsection{고유값 분해 및 SWOMP 빔 선택}
+
+\paragraph{고유값 분해.}
+$\mathbf{P}_{\text{UE}}^{\star}$를 고유값 분해하여 전력 할당과 최적 전송 방향을 추출:
+\begin{equation}
+\mathbf{P}_{\text{UE}}^{\star} = \mathbf{U}_{P,\text{UE}} \boldsymbol{\Lambda}_{P,\text{UE}} \mathbf{U}_{P,\text{UE}}^{\mathsf{H}}, \quad \boldsymbol{\Lambda}_{P,\text{UE}} = \text{diag}(\lambda_1^{\text{UE}}, \ldots, \lambda_{N_{\text{UE,AE}}}^{\text{UE}})
+\end{equation}
+$\lambda_1^{\text{UE}} \geq \cdots \geq \lambda_{N_{\text{UE,AE}}}^{\text{UE}} \geq 0$ (내림차순 정렬)
+
+\paragraph{SWOMP 기반 2단계 코드북 선택.}
+상위 $r_{\text{mode}}$ (=4)개 고유벡터와 고유값을 SWOMP 알고리즘에 입력하여 공통 후보 생성 후 각 Layer에 빔 선택 (알고리즘 상세는 Section 5.4 참조):
+\begin{itemize}
+    \item 입력 고유벡터: $\mathbf{V}_{\text{UE}} = \mathbf{U}_{\text{UE}} \mathbf{U}_{P,\text{UE}}[:, 1:r_{\text{mode}}] \in \mathbb{C}^{16 \times 4}$
+    \item 입력 고유값: $\boldsymbol{\Lambda}_{\text{UE}} = \text{diag}(\lambda_1^{\text{UE}}, \ldots, \lambda_4^{\text{UE}})$
+    \item 코드북: $\mathbf{F}_{2,2,2,2} \in \mathbb{C}^{4 \times 16}$ (Section 2.2)
+    \item 파라미터: $N_{\text{Layer}} = N_{\text{UE,Layer}} = 4$, $N_{\text{Layer,AE}} = 4$
+    \item \textbf{Stage 1 (SWOMP)}: 공통 후보 풀 $\mathcal{C}_{\text{UE}} = \{j_1, j_2, j_3, j_4\}$ 생성 (Section 5.4.3.1)
+    \item \textbf{Stage 2 (Greedy)}: 각 Layer에 공통 후보 중 용량 최대화 빔 선택 (Section 5.4.4)
+    \item 출력: 빔 인덱스 $\boldsymbol{\ell}_{\text{UE}}^{\star} = [\ell_0, \ldots, \ell_3]$, $\ell_i \in \{0, \ldots, 15\}$ (중복 가능)
+    \item 빔포밍: $\mathbf{W}_{\text{UE}}^{\star} = \mathbf{W}_{\text{UE}}[\ell_0, \ell_1, \ell_2, \ell_3]$ (Section 2.4 표기법)
+\end{itemize}
+
+참고: UE는 4 TRX를 가지며, 각 TRX는 하나의 Layer에 1:1 대응한다.
+
+\paragraph{물리적 의미.}
+\begin{itemize}
+    \item $\lambda_i^{\text{UE}}$: $i$번째 전송 모드의 전력 할당 (중요도 지표, SWOMP 가중치로 사용)
+    \item $\mathbf{U}_{P,\text{UE}}[:, i]$: 빔 도메인에서 $i$번째 최적 전송 방향
+    \item $\boldsymbol{\ell}_{\text{UE}}^{\star}$: 공통 후보 풀에서 각 Layer에 최적 빔 선택 (중복 가능)
+    \item SWOMP 가중 내적: $\|\mathbf{W}^{(j)\mathsf{H}} \mathbf{R} \mathbf{D}\|_F^2$로 중요 모드 강조
+\end{itemize}
+
+\subsection{Stage 1 출력}
+
+선택된 빔으로 블록 대각 빔포밍 행렬 $\mathbf{W}_{\text{UE}}^{\star}$ 구성:
+\begin{equation}
+\mathbf{W}_{\text{UE}}^{\star} = \text{blkdiag}(\mathbf{f}_{2,2,2,2}[\ell_0], \ldots, \mathbf{f}_{2,2,2,2}[\ell_3]) \in \mathbb{C}^{16 \times 4}
+\end{equation}
+여기서 $N_{\text{UE,AE}} = 16$, $N_{\text{UE,Layer}} = 4$이다.
+
+\section{Stage 2: 다운링크 BS 코드북 할당 (순차)}
+
+\subsection{개요}
+
+Stage 1 결과 $\mathbf{W}_{\text{UE}}^{\star} \in \mathbb{C}^{16 \times 4}$를 UE 수신측에 고정하고, 다운링크 시나리오에서 BS Layer를 순차 추가하며 각 Layer에 최적 코드북을 할당한다.
+
+\paragraph{BS 전략: 활성 Layer 순차 추가.}
+\begin{itemize}
+    \item \textbf{UE와의 차이}: UE는 모든 4개 Layer 사용, BS는 Layer를 순차 추가하여 RF 하드웨어 절약
+    \item 초기 상태: 모든 위치가 영벡터 (아직 선택 전)
+    \item 목표: $\mathbf{V}_{\text{BS}} \in \mathbb{C}^{1024 \times 4}$를 근사
+    \item 각 단계 $n$: $\mathbf{W}_{\text{BS}}[k_1, \ldots, k_n] \in \mathbb{C}^{1024 \times 64}$ (Section 2.4 표기법)
+    \item $\mathbf{B}_{\text{BS}}[k_1, \ldots, k_n] \in \mathbb{C}^{64 \times 4}$, $\mathbf{W}_{\text{BS}}[k_1, \ldots, k_n] \mathbf{B}_{\text{BS}}[k_1, \ldots, k_n] \approx \mathbf{V}_{\text{BS}}$ (활성 Layer $n$개)
+\end{itemize}
+
+\subsection{Wen2011 최적화 (빔 도메인 변환)}
+
+\paragraph{설정.}
+\begin{itemize}
+    \item $\mathbf{W}_{\text{UE}}^{\star} \in \mathbb{C}^{N_{\text{UE,AE}} \times N_{\text{UE,Layer}}}$: Stage 1 결과 (고정)
+    \item $\mathbf{W}_{\text{BS}}$: 아직 선택 전 (순차 선택 예정)
+\end{itemize}
+
+\paragraph{평균 채널 변환 (UE 빔 적용).}
+\begin{align}
+\bar{\mathbf{H}}_{\text{beam}}^{\text{DL}} &= (\mathbf{W}_{\text{UE}}^{\star})^{\mathsf{H}} \bar{\mathbf{H}}_{\text{DL}} \in \mathbb{C}^{N_{\text{UE,Layer}} \times N_{\text{BS,AE}}}
+\end{align}
+여기서 $N_{\text{UE,Layer}} = 4$, $N_{\text{BS,AE}} = 1024$이다.
+
+\paragraph{UL-DL Duality.}
+\begin{equation}
+\bar{\mathbf{H}}_{\text{beam}}^{\text{UL}} = (\bar{\mathbf{H}}_{\text{beam}}^{\text{DL}})^{\mathsf{H}} \in \mathbb{C}^{N_{\text{BS,AE}} \times N_{\text{UE,Layer}}}
+\end{equation}
+
+\paragraph{UE 공분산 변환 (빔 도메인).}
+업링크 파라미터 $(\mathbf{U}_{\text{BS}}, \mathbf{U}_{\text{UE}}, \boldsymbol{\Omega}_{\text{UL}})$와 $\mathbf{W}_{\text{UE}}^{\star}$를 사용하여 UE 빔 도메인 공분산 계산:
+\begin{align}
+\mathbf{T}_{\text{BS}} &= \mathbf{U}_{\text{BS}}^{\mathsf{H}} \mathbf{I} = \mathbf{U}_{\text{BS}}^{\mathsf{H}} \quad (\text{$\mathbf{W}_{\text{BS}} = \mathbf{I}$}) \\
+\mathbf{v}_{\text{BS}} &= \sum_{i} |\mathbf{T}_{\text{BS}}[i,:]|^2 \in \mathbb{R}^{N_{\text{BS,AE}}} \\
+\mathbf{d}_{\text{UE}} &= \boldsymbol{\Omega}_{\text{UL}}^{\mathsf{T}} \mathbf{v}_{\text{BS}} \in \mathbb{R}^{N_{\text{UE,AE}}} \\
+\mathbf{R}_{\text{UE,beam}} &= (\mathbf{U}_{\text{UE}}^{\mathsf{H}} \mathbf{W}_{\text{UE}}^{\star})^{\mathsf{H}} \text{diag}(\mathbf{d}_{\text{UE}}) (\mathbf{U}_{\text{UE}}^{\mathsf{H}} \mathbf{W}_{\text{UE}}^{\star}) \in \mathbb{C}^{N_{\text{UE,Layer}} \times N_{\text{UE,Layer}}}
+\end{align}
+Eigendecomposition: $\mathbf{R}_{\text{UE,beam}} = \mathbf{U}_{\text{UE,beam}} \boldsymbol{\Lambda}_{\text{UE,beam}} \mathbf{U}_{\text{UE,beam}}^{\mathsf{H}}$
+
+\paragraph{커플링 행렬 변환.}
+\begin{align}
+\mathbf{V}_{\text{BS}} &= \mathbf{U}_{\text{BS}}^{\mathsf{H}} \mathbf{I} \mathbf{I} = \mathbf{U}_{\text{BS}}^{\mathsf{H}} \quad (\text{$\mathbf{W}_{\text{BS}} = \mathbf{I}$, $\mathbf{U}_{\text{BS,beam}} = \mathbf{I}$}) \\
+\mathbf{V}_{\text{UE}} &= \mathbf{U}_{\text{UE}}^{\mathsf{H}} \mathbf{W}_{\text{UE}}^{\star} \mathbf{U}_{\text{UE,beam}} \in \mathbb{C}^{N_{\text{UE,AE}} \times N_{\text{UE,Layer}}} \\
+\boldsymbol{\Omega}_{\text{beam}}^{\text{UL}} &= (\mathbf{V}_{\text{BS}}^{\mathsf{T}} \odot \overline{\mathbf{V}_{\text{BS}}^{\mathsf{T}}}) \boldsymbol{\Omega}_{\text{UL}} (\mathbf{V}_{\text{UE}} \odot \overline{\mathbf{V}_{\text{UE}}}) \\
+&= \boldsymbol{\Omega}_{\text{UL}} |\mathbf{V}_{\text{UE}}|^2 \in \mathbb{R}^{N_{\text{BS,AE}} \times N_{\text{UE,Layer}}}
+\end{align}
+
+\paragraph{Wen2011 TX/RX Swap.}
+다운링크 BS 송신 최적화를 위해 TX/RX 역할 전환:
+\begin{itemize}
+    \item RX (1st arg): $\mathbf{U}_{\text{UE,beam}} \in \mathbb{C}^{N_{\text{UE,Layer}} \times N_{\text{UE,Layer}}}$ (DL UE 수신)
+    \item TX (2nd arg): $\mathbf{U}_{\text{BS}} \in \mathbb{C}^{N_{\text{BS,AE}} \times N_{\text{BS,AE}}}$ (DL BS 송신, 최적화 대상)
+    \item 커플링: $(\boldsymbol{\Omega}_{\text{beam}}^{\text{UL}})^{\mathsf{T}} \in \mathbb{R}^{N_{\text{UE,Layer}} \times N_{\text{BS,AE}}}$ ([RX, TX] 순서)
+    \item 평균 채널: $(\bar{\mathbf{H}}_{\text{beam}}^{\text{UL}})^{\mathsf{H}} \in \mathbb{C}^{N_{\text{UE,Layer}} \times N_{\text{BS,AE}}}$ ([RX, TX] 순서)
+\end{itemize}
+
+\subsection{Wen2011 최적 입력 공분산}
+
+\paragraph{Wen2011 호출 (TX/RX swap).}
+TX/RX 역할을 전환하여 다운링크 BS 송신 공분산 최적화:
+\begin{equation}
+\mathbf{P}_{\text{BS}}^{\star}, C_{\text{DL}}^{\text{full}} = \text{Wen2011}\left(\mathbf{U}_{\text{UE,beam}}, \mathbf{U}_{\text{BS}}, (\boldsymbol{\Omega}_{\text{beam}}^{\text{UL}})^{\mathsf{T}}, (\bar{\mathbf{H}}_{\text{beam}}^{\text{UL}})^{\mathsf{H}}\right)
+\end{equation}
+
+\paragraph{전력 제약 (UL-DL Duality).}
+\begin{equation}
+\text{tr}(\mathbf{P}_{\text{BS}}^{\star}) \leq P_{\text{total,BS}} \quad (\text{uplink 전력 제약과 동일, UL-DL duality})
+\end{equation}
+
+MIMO 채널 랭크는 $r_{\text{mode}} = \min(N_{\text{BS,Layer}}, N_{\text{UE,Layer}}) = \min(64, 4) = 4$로 제한되므로, $\mathbf{P}_{\text{BS}}^{\star} \in \mathbb{C}^{N_{\text{BS,AE}} \times N_{\text{BS,AE}}}$ (=1024×1024)의 상위 $r_{\text{mode}}$ (=4)개 고유벡터만 물리적으로 의미가 있다. Wen2011은 이 $r_{\text{mode}}$개 모드 제약에 한해서 전력 조건을 만족하는 water-filling을 수행해야 한다.
+
+\subsection{고유값 분해 및 SWOMP 빔 순서 결정}
+
+\paragraph{고유값 분해.}
+\begin{equation}
+\mathbf{P}_{\text{BS}}^{\star} = \mathbf{U}_{P,\text{BS}} \boldsymbol{\Lambda}_{P,\text{BS}} \mathbf{U}_{P,\text{BS}}^{\mathsf{H}}, \quad \boldsymbol{\Lambda}_{P,\text{BS}} = \text{diag}(\lambda_1^{\text{BS}}, \ldots, \lambda_{N_{\text{BS,AE}}}^{\text{BS}})
+\end{equation}
+
+\paragraph{SWOMP 기반 2단계 코드북 선택.}
+상위 $r_{\text{mode}}$ (=4)개 고유벡터와 고유값을 SWOMP 알고리즘에 입력하여 공통 후보 생성 후 Layer 순차 할당 (알고리즘 상세는 Section 5.4 참조):
+\begin{itemize}
+    \item 입력 고유벡터: $\mathbf{V}_{\text{BS}} = \mathbf{U}_{\text{BS}} \mathbf{U}_{P,\text{BS}}[:, 1:r_{\text{mode}}] \in \mathbb{C}^{1024 \times 4}$
+    \item 입력 고유값: $\boldsymbol{\Lambda}_{\text{BS}} = \text{diag}(\lambda_1^{\text{BS}}, \ldots, \lambda_4^{\text{BS}})$
+    \item 코드북: $\mathbf{F}_{4,2,4,2} \in \mathbb{C}^{16 \times 64}$
+    \item \textbf{Adaptive 파라미터}: $n_{\text{cand,max}} = 32$, $\tau = 0.05$
+    \item \textbf{Stage 1 (SWOMP)}: 공통 후보 풀 $\mathcal{C}_{\text{BS}}$ 생성 (4~32개 adaptive, 64개 Layer 공통, Section 5.4.3.1)
+    \item \textbf{Stage 2 (Greedy)}: Layer 1에서 용량 상위 4개로 필터링 후 순차 선택 (Section 5.4.4)
+    \item 출력: \textbf{코드북 할당 순서} $\boldsymbol{k}_{\text{BS},n}^{\star} = [k_1, k_2, \ldots, k_n]$ (Layer $i$에 공통 후보 중 선택, $n$개 Layer 사용, 중복 가능)
+    \item 빔포밍: $\mathbf{W}_{\text{BS}}[k_1, \ldots, k_n] \in \mathbb{C}^{1024 \times 64}$ (Section 2.4 표기법)
+\end{itemize}
+
+\paragraph{순차적 Layer 추가 및 코드북 할당.}
+Layer를 순차 추가하며, SWOMP 공통 후보 풀에서 각 Layer에 최적 코드북을 할당. 각 단계 $n$에서:
+\begin{itemize}
+    \item $n$개 Layer 활성: $\mathbf{W}_{\text{BS}}[k_1, \ldots, k_n] \in \mathbb{C}^{1024 \times 64}$, $\mathbf{B}_{\text{BS}}[k_1, \ldots, k_n] \in \mathbb{C}^{64 \times 4}$
+    \item $\mathbf{W}_{\text{BS}}[k_1, \ldots, k_n] \mathbf{B}_{\text{BS}}[k_1, \ldots, k_n] \approx \mathbf{V}_{\text{BS}}$ (활성 Layer $n$개)
+    \item 목적: RF 하드웨어 절약과 용량 간의 trade-off 분석
+    \item SWOMP 가중 내적: $\|\mathbf{W}[j\,\mathbf{1}_N]^{\mathsf{H}} \mathbf{R} \mathbf{D}\|_{\text{F}}^2$로 중요 모드 강조 (Section 5.4.3.1)
+\end{itemize}
+
+\subsection{최종 빔포밍 구성}
+
+\paragraph{채널 파라미터 구분.}
+\begin{itemize}
+    \item \textbf{공통}: $\mathbf{U}_{\text{BS}}, \mathbf{U}_{\text{UE}}$ (채널 고유 구조, UL/DL 동일)
+    \item \textbf{Link-specific}: 
+    \begin{itemize}
+        \item 커플링: $\boldsymbol{\Omega}_{\text{UL}} \leftrightarrow \boldsymbol{\Omega}_{\text{DL}} = (\boldsymbol{\Omega}_{\text{UL}})^{\mathsf{T}}$
+        \item 평균 채널: $\bar{\mathbf{H}}_{\text{UL}} \leftrightarrow \bar{\mathbf{H}}_{\text{DL}} = (\bar{\mathbf{H}}_{\text{UL}})^{\mathsf{H}}$
+    \end{itemize}
+    \item \textbf{중요}: 다운링크 용량 계산 시 $\boldsymbol{\Omega}_{\text{DL}}, \bar{\mathbf{H}}_{\text{DL}}$ 사용 필수
+\end{itemize}
+
+\paragraph{순차적 용량 평가.}
+2단계 알고리즘으로 결정된 코드북 할당 순서 $\boldsymbol{k}_{\text{BS}}^{\star}$를 따라, $n$개 Layer 사용 시마다 용량을 평가 ($\boldsymbol{k}_{\text{BS},n}^{\star} = [k_1, k_2, \ldots, k_n]$):
+
+\paragraph{$n$개 Layer 활성 시 빔포밍 행렬.}
+\begin{equation}
+\mathbf{W}_{\text{BS}}[k_1, \ldots, k_n] = \text{blkdiag}(\mathbf{f}_{4,2,4,2}[k_1], \ldots, \mathbf{f}_{4,2,4,2}[k_n], \mathbf{0}, \ldots, \mathbf{0}) \in \mathbb{C}^{1024 \times 64}
+\end{equation}
+
+\paragraph{차원 관계.}
+\begin{itemize}
+    \item $\mathbf{W}_{\text{BS}}[k_1, \ldots, k_n] \in \mathbb{C}^{1024 \times 64}$: $n$개 Layer 활성, $(64-n)$개 Layer에 영벡터
+    \item $\mathbf{B}_{\text{BS}}[k_1, \ldots, k_n] \in \mathbb{C}^{64 \times 4}$: 디지털 빔포밍 (least-squares로 계산)
+    \item $\mathbf{W}_{\text{BS}}[k_1, \ldots, k_n] \mathbf{B}_{\text{BS}}[k_1, \ldots, k_n] \in \mathbb{C}^{1024 \times 4} \approx \mathbf{V}_{\text{BS}}$
+\end{itemize}
+
+\paragraph{용량 히스토리 계산.}
+각 Layer $n$에 대해 빔 도메인 변환 후 Wen2011 에르고딕 용량 계산: $C_{\text{DL}}^{(n)}$. $n$개 빔 사용 시 용량으로 $C_{\text{DL}}^{(1)} \leq \cdots \leq C_{\text{DL}}^{(64)} = C_{\text{DL,full}}$ 단조 증가. 목표 비율 $\alpha \cdot C_{\text{DL,full}}$ 달성 시점 파악 가능.
+
+\subsection{Stage 2 출력}
+
+\begin{itemize}
+    \item 코드북 할당 순서: $\boldsymbol{k}_{\text{BS}}^{\star} = [k_1, k_2, \ldots, k_{64}]$ (전체 순서, $n$개 Layer 사용 시 $\boldsymbol{k}_{\text{BS},n}^{\star} = [k_1, k_2, \ldots, k_n]$)
+    \item 다운링크 용량 히스토리: $\{C_{\text{DL}}^{(1)}, C_{\text{DL}}^{(2)}, \ldots, C_{\text{DL}}^{(64)}\}$
+    \item 기준 용량: $C_{\text{DL,full}} = C_{\text{DL}}^{(64)}$ (히스토리 마지막 값)
+    \item 목표 Layer 개수: $n^{\star} = \arg\min_n \{C_{\text{DL}}^{(n)} \geq \alpha \cdot C_{\text{DL,full}}\}$ (여기서 $\alpha \in (0, 1]$은 사용자 정의 목표 비율, 예: 0.95, 0.99 등)
+    \item 용량 히스토리로부터 사후 계산 가능
+\end{itemize}
+
+\section{P1P 전체 알고리즘}
+
+\subsection{통합 파이프라인}
+
+\begin{algorithm}[H]
+\caption{P1P v3: 양방향 SWOMP 코드북 할당 (Stage 1 + Stage 2)}
+\begin{algorithmic}[1]
+\STATE \textbf{Input:} P1I 파라미터 $\{\mathbf{U}_{\text{BS}}, \mathbf{U}_{\text{UE}}, \boldsymbol{\Omega}_{\text{UL}}, \bar{\mathbf{H}}_{\text{UL}}\}$
+\STATE \quad\quad\quad 목표 비율 $\alpha \in (0, 1]$ (선택적, 기본값: 0.95)
+\STATE \textbf{Output:}
+\STATE \quad UE\_codebooks: $\boldsymbol{\ell}_{\text{UE}}^{\star} = [\ell_0, \ell_1, \ell_2, \ell_3]$
+\STATE \quad BS\_codebooks: $\boldsymbol{k}_{\text{BS}}^{\star} = [k_1, k_2, \ldots, k_{64}]$
+\STATE \quad C\_dl\_history: $\{C_{\text{DL}}^{(1)}, C_{\text{DL}}^{(2)}, \ldots, C_{\text{DL}}^{(64)}\}$ (마지막 값 = $C_{\text{DL,full}}$)
+\STATE
+\STATE \textbf{===== Stage 1: 업링크 UE 코드북 할당 =====}
+\STATE \textbf{초기화:} $\mathbf{W}_{\text{BS}} = \mathbf{I}_{N_{\text{BS,AE}}}$, $\mathbf{W}_{\text{UE}} = \mathbf{I}_{N_{\text{UE,AE}}}$
+\STATE Wen2011: $\mathbf{P}_{\text{UE}}^{\star}, C_{\text{UE}} \gets$ Wen2011($\mathbf{U}_{\text{BS}}, \mathbf{U}_{\text{UE}}, \boldsymbol{\Omega}_{\text{UL}}, \bar{\mathbf{H}}_{\text{UL}}$)
+\STATE Eigendecomposition: $\mathbf{P}_{\text{UE}}^{\star} = \mathbf{U}_{P,\text{UE}} \boldsymbol{\Lambda}_{P,\text{UE}} \mathbf{U}_{P,\text{UE}}^{\mathsf{H}}$
+\STATE $\mathbf{V}_{\text{UE}} \gets \mathbf{U}_{\text{UE}} \mathbf{U}_{P,\text{UE}}[:, 1:r_{\text{mode}}]$, $\boldsymbol{\Lambda}_{\text{UE}} \gets \text{diag}(\lambda_1^{\text{UE}}, \ldots, \lambda_4^{\text{UE}})$
+\STATE \textbf{SWOMP 2단계 선택 (Section 5.4):}
+\STATE \quad Stage 1: $\mathcal{C}_{\text{UE}} \gets$ SWOMP($\mathbf{V}_{\text{UE}}, \boldsymbol{\Lambda}_{\text{UE}}$) \quad (공통 후보 4개)
+\STATE \quad Stage 2: $\boldsymbol{\ell}_{\text{UE}}^{\star} \gets$ Greedy\_Select($\mathcal{C}_{\text{UE}}$, 4 Layers)
+\STATE 빔포밍 구성: $\mathbf{W}_{\text{UE}}^{\star} \gets \mathbf{W}_{\text{UE}}[\ell_0, \ell_1, \ell_2, \ell_3]$ (Section 2.4 표기법)
+\STATE
+\STATE \textbf{===== Stage 2: 다운링크 BS 코드북 할당 (순차) =====}
+\STATE \textbf{초기화:} $\mathbf{W}_{\text{UE}}^{\star}$ 고정 (Stage 1 결과)
+\STATE 빔 도메인 변환 (다운링크): $\mathbf{W}_{\text{UE}}^{\star}$를 적용하여 $\{\bar{\mathbf{H}}_{\text{beam}}^{\text{DL}}, \mathbf{U}_{\text{UE,beam}}^{\text{DL}}, \boldsymbol{\Omega}_{\text{beam}}^{\text{DL}}\}$ 계산
+\STATE Wen2011: $\mathbf{P}_{\text{BS}}^{\star}, C_{\text{DL}}^{\text{init}} \gets$ Wen2011($\mathbf{U}_{\text{UE,beam}}^{\text{DL}}, \mathbf{U}_{\text{BS}}, \boldsymbol{\Omega}_{\text{beam}}^{\text{DL}}, \bar{\mathbf{H}}_{\text{beam}}^{\text{DL}}$)
+\STATE Eigendecomposition: $\mathbf{P}_{\text{BS}}^{\star} = \mathbf{U}_{P,\text{BS}} \boldsymbol{\Lambda}_{P,\text{BS}} \mathbf{U}_{P,\text{BS}}^{\mathsf{H}}$
+\STATE $\mathbf{V}_{\text{BS}} \gets \mathbf{U}_{\text{BS}} \mathbf{U}_{P,\text{BS}}[:, 1:r_{\text{mode}}]$, $\boldsymbol{\Lambda}_{\text{BS}} \gets \text{diag}(\lambda_1^{\text{BS}}, \ldots, \lambda_4^{\text{BS}})$
+\STATE \textbf{SWOMP 2단계 선택 (Section 5.4):}
+\STATE \quad Stage 1: $\mathcal{C}_{\text{BS}} \gets$ SWOMP($\mathbf{V}_{\text{BS}}, \boldsymbol{\Lambda}_{\text{BS}}$, $n_{\text{cand,max}}=32$, $\tau=0.05$)
+\STATE \quad\quad\quad (공통 후보 4~32개 adaptive, 64 Layers 공유)
+\STATE \quad Stage 2: Layer 1에서 용량 상위 4개로 필터링
+\STATE \quad\quad\quad $\boldsymbol{k}_{\text{BS}}^{\star} \gets$ Greedy\_Select(filtered $\mathcal{C}_{\text{BS}}$, 64 Layers 순차)
+\STATE
+\STATE \textbf{용량 히스토리 계산:}
+\FOR{$n = 1$ to $N_{\text{BS,Layer}}$ (=64)}
+    \STATE $\mathbf{W}_{\text{BS}}[k_1, \ldots, k_n] \gets \mathbf{W}_{\text{BS}}[k_1, \ldots, k_n]$ (Section 2.4 표기법)
+    \STATE 빔 도메인 변환 (다운링크, $n$개 BS 빔)
+    \STATE $C_{\text{DL}}^{(n)} \gets$ Wen2011($\mathbf{W}_{\text{BS}}[k_1, \ldots, k_n], \mathbf{W}_{\text{UE}}^{\star}$, 다운링크)
+\ENDFOR
+\STATE $C_{\text{DL,full}} \gets C_{\text{DL}}^{(64)}$
+\STATE
+\RETURN UE\_codebooks: $\boldsymbol{\ell}_{\text{UE}}^{\star}$, BS\_codebooks: $\boldsymbol{k}_{\text{BS}}^{\star}$, C\_dl\_history: $\{C_{\text{DL}}^{(1)}, \ldots, C_{\text{DL}}^{(64)}\}$
+\end{algorithmic}
+\end{algorithm}
+
+\subsection{계산 복잡도}
+
+\paragraph{Stage 1 (업링크 UE).}
+\begin{itemize}
+    \item Wen2011: 1회
+    \item Eigendecomposition: $O(N_{\text{UE,AE}}^3)$
+    \item SWOMP 2단계 빔 선택:
+    \begin{itemize}
+        \item Stage 1 (SWOMP 후보 생성): $O(r_{\text{mode}} \times N_{\text{Codebook}}) = O(4 \times 16) = 64$회 가중 내적
+        \item Stage 2 (Greedy 선택): $O(N_{\text{Layer}} \times r_{\text{mode}} \times \text{Wen2011\_call}) = 4 \times 4 = 16$ Wen2011
+    \end{itemize}
+\end{itemize}
+
+\paragraph{Stage 2 (다운링크 BS).}
+\begin{itemize}
+    \item Wen2011 (빔 선택): 1회 (TX/RX swap, BS 송신 최적화)
+    \item Eigendecomposition: $O(N_{\text{BS,AE}}^3)$ (=1024³)
+    \item SWOMP 2단계 빔 선택:
+    \begin{itemize}
+        \item Stage 1 (SWOMP 후보 생성): $O(n_{\text{cand}} \times N_{\text{Codebook}})$
+        \begin{itemize}
+            \item Worst case: $32 \times 64 = 2{,}048$회 가중 내적
+            \item Adaptive: 평균 4~16회 조기 종료, 실제 $\sim$256~1,024회
+        \end{itemize}
+        \item Stage 2 (Greedy 선택): $O(N_{\text{Layer}} \times n_{\text{filtered}})$
+        \begin{itemize}
+            \item Layer 1: $n_{\text{cand}}$개 후보 평가
+            \item Layer 2~64: 4개 필터링된 후보만 평가
+            \item 총: $(n_{\text{cand}} + 63 \times 4)$ Wen2011 호출
+        \end{itemize}
+    \end{itemize}
+\end{itemize}
+
+\paragraph{총 복잡도.}
+\begin{itemize}
+    \item Wen2011 호출: $2 + 16 + (n_{\text{cand}} + 252)$회 (BS adaptive에 따라 변동)
+    \begin{itemize}
+        \item Stage 1 최적화: 1회 (UE 입력 공분산)
+        \item Stage 1 용량 평가: 16회 (4 Layer $\times$ 4 $r_{\text{mode}}$ 후보)
+        \item Stage 2 최적화: 1회 (BS 입력 공분산, TX/RX swap)
+        \item Stage 2 Greedy 용량 평가: $(n_{\text{cand}} + 63 \times 4)$회 (Layer 1: $n_{\text{cand}}$개, Layer 2~64: 4개 필터링된 후보)
+    \end{itemize}
+    \item SWOMP 가중 내적 계산:
+    \begin{itemize}
+        \item Stage 1 (UE): $r_{\text{mode}} \times N_{\text{Codebook}} = 4 \times 16 = 64$회 (고정)
+        \item Stage 2 (BS): $n_{\text{cand}} \times N_{\text{Codebook}}$ (adaptive, 최대 $32 \times 64 = 2{,}048$회)
+        \item 총: $64 + n_{\text{cand}} \times 64$회 가중 내적 (BS adaptive에 따라 변동)
+    \end{itemize}
+    \item 채널 랭크 제한: $r_{\text{mode}} = 4$이므로 UE는 공통 후보 4개 고정, BS는 4~32개 adaptive
+\end{itemize}
+
+\paragraph{SWOMP 계산량 개선.}
+\begin{itemize}
+    \item \textbf{UE Stage 1}: $256 \rightarrow 64$ (75\% 감소)
+    \begin{itemize}
+        \item 기존 OMP: $N_{\text{Layer}} \times r_{\text{mode}} \times N_{\text{Codebook}} = 4 \times 4 \times 16 = 256$
+        \item SWOMP: $r_{\text{mode}} \times N_{\text{Codebook}} = 4 \times 16 = 64$ (고정)
+    \end{itemize}
+    \item \textbf{BS Stage 1}: $16{,}384 \rightarrow 256$~$2{,}048$ (adaptive)
+    \begin{itemize}
+        \item 기존 OMP: $N_{\text{Layer}} \times r_{\text{mode}} \times N_{\text{Codebook}} = 64 \times 4 \times 64 = 16{,}384$
+        \item SWOMP (최소): $r_{\text{mode}} \times N_{\text{Codebook}} = 4 \times 64 = 256$ (98.4\% 감소)
+        \item SWOMP (최대): $n_{\text{cand,max}} \times N_{\text{Codebook}} = 32 \times 64 = 2{,}048$ (87.5\% 감소)
+        \item Adaptive: 평균 4~16회 조기 종료로 실제 $\sim$256~1,024회
+    \end{itemize}
+    \item Stage 2는 동일 (용량 평가, BS는 필터링으로 효율성 추가)
+\end{itemize}
+
+\subsection{입출력 요약}
+
+\paragraph{입력.}
+\begin{itemize}
+    \item P1I: 채널 통계 $\{\mathbf{U}_{\text{BS}}, \mathbf{U}_{\text{UE}}, \boldsymbol{\Omega}_{\text{UL}}, \bar{\mathbf{H}}_{\text{UL}}\}$
+    \item 전송 모드: $r_{\text{mode}} = \min(N_{\text{BS,Layer}}, N_{\text{UE,Layer}}) = 4$
+    \item 목표 비율: $\alpha \in (0, 1]$ (선택적, 기준 용량의 비율)
+\end{itemize}
+
+\paragraph{출력.}
+\begin{itemize}
+    \item UE\_codebooks: $\boldsymbol{\ell}_{\text{UE}}^{\star} = [\ell_0, \ell_1, \ell_2, \ell_3]$, $\ell_i \in \{0, \ldots, 15\}$ (4개 Layer)
+    \item BS\_codebooks: $\boldsymbol{k}_{\text{BS}}^{\star} = [k_1, k_2, \ldots, k_{64}]$ ($n$개 Layer 사용 시 $\boldsymbol{k}_{\text{BS},n}^{\star} = [k_1, \ldots, k_n]$, $k_i \in \{0, \ldots, 63\}$)
+    \item C\_dl\_history: $\{C_{\text{DL}}^{(1)}, C_{\text{DL}}^{(2)}, \ldots, C_{\text{DL}}^{(64)}\}$ (마지막 값이 $C_{\text{DL,full}}$)
+    \item 기준 용량: $C_{\text{DL,full}} = C_{\text{DL}}^{(64)}$
+\end{itemize}
+
+\section{P1O vs P1P vs P1P v3 비교}
+
+\begin{table}[H]
+\centering
+\begin{tabular}{|l|l|l|l|}
+\hline
+\textbf{구분} & \textbf{P1O Stage 3/4} & \textbf{P1P (OMP)} & \textbf{P1P v3 (SWOMP)} \\ \hline\hline
+\textbf{방법론} & Cyclic + Greedy & Wen2011 + OMP & Wen2011 + SWOMP \\ \hline
+\textbf{후보 생성} & - & 레이어별 독립 OMP & 공통 SWOMP \\ \hline
+\textbf{고유값 가중} & - & 없음 & $\mathbf{D} = \text{diag}(\sqrt{\lambda})$ \\ \hline
+\textbf{Wen2011 호출} & $\sim$2,000 & 274 & 274 \\ \hline
+\textbf{UE Stage 1} & - & 256회 & 64회 (75\%) \\ \hline
+\textbf{BS Stage 1} & - & 16,384회 & 256회 (98.4\%) \\ \hline
+\textbf{코드북 중복} & - & 불가 & 가능 \\ \hline
+\end{tabular}
+\caption{P1O Stage 3/4 vs P1P (OMP) vs P1P v3 (SWOMP) 비교}
+\end{table}
+
+\section{결론}
+
+P1P v3는 Wen2011 최적 입력 공분산과 SWOMP 기반 2단계 코드북 선택을 결합한 양방향 HBF 알고리즘이다.
+
+\paragraph{주요 특징.}
+\begin{itemize}
+    \item \textbf{양방향 최적화}: Stage 1 (UE 업링크) + Stage 2 (BS 다운링크, TX/RX swap)
+    \item \textbf{이론적 근거}: Wen2011 점근적 최적 + SWOMP 고유값 가중 + 잔차 직교화
+    \item \textbf{계산 효율성}: P1P(OMP) 대비 UE 75\% (256→64), BS 98.4\% (16,384→256) 감소
+    \item \textbf{공통 후보}: $r_{\text{mode}}$개 후보를 전체 Layer 공유, 중복 할당 가능
+\end{itemize}
+
+\paragraph{P1P(OMP) 대비 개선.}
+\begin{itemize}
+    \item 레이어별 독립 $\to$ 전체 Layer 공통 후보 (계산량 75-98\% 감소)
+    \item 모드별 OMP $\to$ 고유값 가중 SWOMP (중요 모드 강조)
+    \item 동일 Wen2011 호출로 더 나은 후보 생성
+\end{itemize}
+
+\paragraph{구현 핵심.}
+\begin{itemize}
+    \item SWOMP 가중 내적: $\rho_j^{(i)} = \|\mathbf{W}[j\,\mathbf{1}_N]^{\mathsf{H}} \mathbf{R}^{(i-1)} \mathbf{D}\|_{\text{F}}^2$ (Section 2.4 표기)
+    \item 잔차 직교화: $\mathbf{R}^{(i)} = \mathbf{R}^{(i-1)} - \mathbf{W}[j_i\,\mathbf{1}_N] \mathbf{B}$
+    \item Greedy 선택: 공통 후보 $\mathcal{C}$에서 용량 최대화 빔 할당
+\end{itemize}
+
+\paragraph{적용 시나리오.}
+양방향 빔 관리, 채널 통계 추정 가능 (P1I), 계산량 제약 환경, 빔 개수 최적화 필요, 하이브리드 빔포밍 시스템.
+
+\end{document}

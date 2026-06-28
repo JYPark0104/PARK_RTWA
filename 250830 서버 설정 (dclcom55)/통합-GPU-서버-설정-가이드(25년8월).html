@@ -1,0 +1,994 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>통합-GPU-서버-설정-가이드_v5.md</title>
+<meta http-equiv="Content-type" content="text/html;charset=UTF-8">
+
+<style>
+/* https://github.com/microsoft/vscode/blob/master/extensions/markdown-language-features/media/markdown.css */
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
+body {
+	font-family: var(--vscode-markdown-font-family, -apple-system, BlinkMacSystemFont, "Segoe WPC", "Segoe UI", "Ubuntu", "Droid Sans", sans-serif);
+	font-size: var(--vscode-markdown-font-size, 14px);
+	padding: 0 26px;
+	line-height: var(--vscode-markdown-line-height, 22px);
+	word-wrap: break-word;
+}
+
+#code-csp-warning {
+	position: fixed;
+	top: 0;
+	right: 0;
+	color: white;
+	margin: 16px;
+	text-align: center;
+	font-size: 12px;
+	font-family: sans-serif;
+	background-color:#444444;
+	cursor: pointer;
+	padding: 6px;
+	box-shadow: 1px 1px 1px rgba(0,0,0,.25);
+}
+
+#code-csp-warning:hover {
+	text-decoration: none;
+	background-color:#007acc;
+	box-shadow: 2px 2px 2px rgba(0,0,0,.25);
+}
+
+body.scrollBeyondLastLine {
+	margin-bottom: calc(100vh - 22px);
+}
+
+body.showEditorSelection .code-line {
+	position: relative;
+}
+
+body.showEditorSelection .code-active-line:before,
+body.showEditorSelection .code-line:hover:before {
+	content: "";
+	display: block;
+	position: absolute;
+	top: 0;
+	left: -12px;
+	height: 100%;
+}
+
+body.showEditorSelection li.code-active-line:before,
+body.showEditorSelection li.code-line:hover:before {
+	left: -30px;
+}
+
+.vscode-light.showEditorSelection .code-active-line:before {
+	border-left: 3px solid rgba(0, 0, 0, 0.15);
+}
+
+.vscode-light.showEditorSelection .code-line:hover:before {
+	border-left: 3px solid rgba(0, 0, 0, 0.40);
+}
+
+.vscode-light.showEditorSelection .code-line .code-line:hover:before {
+	border-left: none;
+}
+
+.vscode-dark.showEditorSelection .code-active-line:before {
+	border-left: 3px solid rgba(255, 255, 255, 0.4);
+}
+
+.vscode-dark.showEditorSelection .code-line:hover:before {
+	border-left: 3px solid rgba(255, 255, 255, 0.60);
+}
+
+.vscode-dark.showEditorSelection .code-line .code-line:hover:before {
+	border-left: none;
+}
+
+.vscode-high-contrast.showEditorSelection .code-active-line:before {
+	border-left: 3px solid rgba(255, 160, 0, 0.7);
+}
+
+.vscode-high-contrast.showEditorSelection .code-line:hover:before {
+	border-left: 3px solid rgba(255, 160, 0, 1);
+}
+
+.vscode-high-contrast.showEditorSelection .code-line .code-line:hover:before {
+	border-left: none;
+}
+
+img {
+	max-width: 100%;
+	max-height: 100%;
+}
+
+a {
+	text-decoration: none;
+}
+
+a:hover {
+	text-decoration: underline;
+}
+
+a:focus,
+input:focus,
+select:focus,
+textarea:focus {
+	outline: 1px solid -webkit-focus-ring-color;
+	outline-offset: -1px;
+}
+
+hr {
+	border: 0;
+	height: 2px;
+	border-bottom: 2px solid;
+}
+
+h1 {
+	padding-bottom: 0.3em;
+	line-height: 1.2;
+	border-bottom-width: 1px;
+	border-bottom-style: solid;
+}
+
+h1, h2, h3 {
+	font-weight: normal;
+}
+
+table {
+	border-collapse: collapse;
+}
+
+table > thead > tr > th {
+	text-align: left;
+	border-bottom: 1px solid;
+}
+
+table > thead > tr > th,
+table > thead > tr > td,
+table > tbody > tr > th,
+table > tbody > tr > td {
+	padding: 5px 10px;
+}
+
+table > tbody > tr + tr > td {
+	border-top: 1px solid;
+}
+
+blockquote {
+	margin: 0 7px 0 5px;
+	padding: 0 16px 0 10px;
+	border-left-width: 5px;
+	border-left-style: solid;
+}
+
+code {
+	font-family: Menlo, Monaco, Consolas, "Droid Sans Mono", "Courier New", monospace, "Droid Sans Fallback";
+	font-size: 1em;
+	line-height: 1.357em;
+}
+
+body.wordWrap pre {
+	white-space: pre-wrap;
+}
+
+pre:not(.hljs),
+pre.hljs code > div {
+	padding: 16px;
+	border-radius: 3px;
+	overflow: auto;
+}
+
+pre code {
+	color: var(--vscode-editor-foreground);
+	tab-size: 4;
+}
+
+/** Theming */
+
+.vscode-light pre {
+	background-color: rgba(220, 220, 220, 0.4);
+}
+
+.vscode-dark pre {
+	background-color: rgba(10, 10, 10, 0.4);
+}
+
+.vscode-high-contrast pre {
+	background-color: rgb(0, 0, 0);
+}
+
+.vscode-high-contrast h1 {
+	border-color: rgb(0, 0, 0);
+}
+
+.vscode-light table > thead > tr > th {
+	border-color: rgba(0, 0, 0, 0.69);
+}
+
+.vscode-dark table > thead > tr > th {
+	border-color: rgba(255, 255, 255, 0.69);
+}
+
+.vscode-light h1,
+.vscode-light hr,
+.vscode-light table > tbody > tr + tr > td {
+	border-color: rgba(0, 0, 0, 0.18);
+}
+
+.vscode-dark h1,
+.vscode-dark hr,
+.vscode-dark table > tbody > tr + tr > td {
+	border-color: rgba(255, 255, 255, 0.18);
+}
+
+</style>
+
+<style>
+/* Tomorrow Theme */
+/* http://jmblog.github.com/color-themes-for-google-code-highlightjs */
+/* Original theme - https://github.com/chriskempson/tomorrow-theme */
+
+/* Tomorrow Comment */
+.hljs-comment,
+.hljs-quote {
+	color: #8e908c;
+}
+
+/* Tomorrow Red */
+.hljs-variable,
+.hljs-template-variable,
+.hljs-tag,
+.hljs-name,
+.hljs-selector-id,
+.hljs-selector-class,
+.hljs-regexp,
+.hljs-deletion {
+	color: #c82829;
+}
+
+/* Tomorrow Orange */
+.hljs-number,
+.hljs-built_in,
+.hljs-builtin-name,
+.hljs-literal,
+.hljs-type,
+.hljs-params,
+.hljs-meta,
+.hljs-link {
+	color: #f5871f;
+}
+
+/* Tomorrow Yellow */
+.hljs-attribute {
+	color: #eab700;
+}
+
+/* Tomorrow Green */
+.hljs-string,
+.hljs-symbol,
+.hljs-bullet,
+.hljs-addition {
+	color: #718c00;
+}
+
+/* Tomorrow Blue */
+.hljs-title,
+.hljs-section {
+	color: #4271ae;
+}
+
+/* Tomorrow Purple */
+.hljs-keyword,
+.hljs-selector-tag {
+	color: #8959a8;
+}
+
+.hljs {
+	display: block;
+	overflow-x: auto;
+	color: #4d4d4c;
+	padding: 0.5em;
+}
+
+.hljs-emphasis {
+	font-style: italic;
+}
+
+.hljs-strong {
+	font-weight: bold;
+}
+</style>
+
+<style>
+/*
+ * Markdown PDF CSS
+ */
+
+ body {
+	font-family: -apple-system, BlinkMacSystemFont, "Segoe WPC", "Segoe UI", "Ubuntu", "Droid Sans", sans-serif, "Meiryo";
+	padding: 0 12px;
+}
+
+pre {
+	background-color: #f8f8f8;
+	border: 1px solid #cccccc;
+	border-radius: 3px;
+	overflow-x: auto;
+	white-space: pre-wrap;
+	overflow-wrap: break-word;
+}
+
+pre:not(.hljs) {
+	padding: 23px;
+	line-height: 19px;
+}
+
+blockquote {
+	background: rgba(127, 127, 127, 0.1);
+	border-color: rgba(0, 122, 204, 0.5);
+}
+
+.emoji {
+	height: 1.4em;
+}
+
+code {
+	font-size: 14px;
+	line-height: 19px;
+}
+
+/* for inline code */
+:not(pre):not(.hljs) > code {
+	color: #C9AE75; /* Change the old color so it seems less like an error */
+	font-size: inherit;
+}
+
+/* Page Break : use <div class="page"/> to insert page break
+-------------------------------------------------------- */
+.page {
+	page-break-after: always;
+}
+
+</style>
+
+<script src="https://unpkg.com/mermaid/dist/mermaid.min.js"></script>
+</head>
+<body>
+  <script>
+    mermaid.initialize({
+      startOnLoad: true,
+      theme: document.body.classList.contains('vscode-dark') || document.body.classList.contains('vscode-high-contrast')
+          ? 'dark'
+          : 'default'
+    });
+  </script>
+<h1 id="nvidia-l40s-gpu-%EC%84%9C%EB%B2%84-%EC%84%A4%EC%A0%95-%EA%B0%80%EC%9D%B4%EB%93%9C">NVIDIA L40S GPU 서버 설정 가이드</h1>
+<h2 id="a-%ED%95%98%EB%93%9C%EC%9B%A8%EC%96%B4-%EC%A0%95%EB%B3%B4">A. 하드웨어 정보</h2>
+<h3 id="gpu-%EC%82%AC%EC%96%91-nvidia-l40s-%C3%97-2%EB%8C%80">GPU 사양 (NVIDIA L40S × 2대)</h3>
+<ul>
+<li><strong>GPU Memory</strong>: 48GB GDDR6 with ECC</li>
+<li><strong>CUDA Cores</strong>: 18,176개</li>
+<li><strong>Tensor Cores</strong>: 568개 (4th Generation)</li>
+<li><strong>Max Power</strong>: 350W</li>
+<li><strong>총 구매가격</strong>: 24,200,000원 (VAT 포함)</li>
+</ul>
+<h3 id="%EC%84%9C%EB%B2%84-%EC%82%AC%EC%96%91-supermicro-sys-740gp-tnrt">서버 사양 (Supermicro SYS-740GP-TNRT)</h3>
+<ul>
+<li><strong>CPU</strong>: Dual Intel Xeon Gold 6326 (16코어/32스레드)</li>
+<li><strong>Memory</strong>: 1TB DDR4-3200 ECC</li>
+<li><strong>Storage</strong>: 1.92TB NVMe SSD</li>
+<li><strong>Network</strong>: Dual 10GbE + 200G InfiniBand</li>
+</ul>
+<h2 id="b-%EC%84%A4%EC%A0%95-%EC%88%9C%EC%84%9C">B. 설정 순서</h2>
+<h3 id="1-%EB%84%A4%ED%8A%B8%EC%9B%8C%ED%81%AC-%EC%84%A4%EC%A0%95-%EA%B3%A0%EC%A0%95ip">1. 네트워크 설정 (고정IP)</h3>
+<p><strong>GUI 방법 (추천):</strong></p>
+<pre class="hljs"><code><div><span class="hljs-comment"># 네트워크 설정 도구 실행</span>
+nm-connection-editor
+</div></code></pre>
+<p><strong>설정 방법:</strong></p>
+<ol>
+<li>eno1, eno2 연결을 각각 편집</li>
+<li>IPv4 Settings → Method를 &quot;Manual&quot;로 변경</li>
+<li>연구실 구글 시트의 네트워크 정보 입력:
+<ul>
+<li>Address: 할당된 고정IP</li>
+<li>Netmask: 255.255.252.0</li>
+<li>Gateway: 165.132.120.1</li>
+<li>DNS: 165.132.10.21, 165.132.5.21</li>
+</ul>
+</li>
+</ol>
+<h3 id="2-%EA%B8%B0%EB%B3%B8-%EC%8B%9C%EC%8A%A4%ED%85%9C-%EC%84%A4%EC%A0%95">2. 기본 시스템 설정</h3>
+<pre class="hljs"><code><div><span class="hljs-comment"># 시스템 업데이트</span>
+sudo apt update &amp;&amp; sudo apt upgrade -y
+
+<span class="hljs-comment"># 필수 패키지 설치</span>
+sudo apt install -y build-essential software-properties-common curl wget git ca-certificates lsb-release gnupg2 llvm libegl1 libgl1 libgomp1 libx11-6 libx11-dev libffi-dev
+
+<span class="hljs-comment"># 한국 시간대 설정</span>
+sudo timedatectl <span class="hljs-built_in">set</span>-timezone Asia/Seoul
+</div></code></pre>
+<h3 id="3-nvidia-gpu-%ED%99%98%EA%B2%BD-%EC%84%A4%EC%A0%95">3. NVIDIA GPU 환경 설정</h3>
+<h4 id="31-gpu-%EC%83%81%ED%83%9C-%ED%99%95%EC%9D%B8">3.1 GPU 상태 확인</h4>
+<pre class="hljs"><code><div>nvidia-smi
+</div></code></pre>
+<p><strong>실제 출력 예시:</strong></p>
+<pre class="hljs"><code><div>Thu Aug 28 23:46:11 2025       
++-----------------------------------------------------------------------------------------+
+| NVIDIA-SMI 550.163.01             Driver Version: 550.163.01     CUDA Version: 12.4     |
+|-----------------------------------------+------------------------+----------------------+
+| GPU  Name                 Persistence-M | Bus-Id          Disp.A | Volatile Uncorr. ECC |
+| Fan  Temp   Perf          Pwr:Usage/Cap |           Memory-Usage | GPU-Util  Compute M. |
+|                                         |                        |               MIG M. |
+|=========================================+========================+======================|
+|   0  NVIDIA L40S                    Off |   00000000:31:00.0 Off |                    0 |
+| N/A   28C    P8             22W /  350W |      11MiB /  46068MiB |      0%      Default |
+|                                         |                        |                  N/A |
++-----------------------------------------+------------------------+----------------------+
+                                                                                         
++-----------------------------------------------------------------------------------------+
+| Processes:                                                                              |
+|  GPU   GI   CI        PID   Type   Process name                              GPU Memory |
+|        ID   ID                                                               Usage      |
+|=========================================================================================|
+|    0   N/A  N/A      2704      G   /usr/lib/xorg/Xorg                              4MiB |
++-----------------------------------------------------------------------------------------+
+</div></code></pre>
+<p><strong>🔍 결과 해석:</strong></p>
+<ul>
+<li><strong>Driver Version: 550.163.01</strong>: NVIDIA 드라이버가 이미 설치되어 정상 작동 중</li>
+<li><strong>CUDA Version: 12.4</strong>: 시스템에서 지원하는 CUDA 최대 버전</li>
+<li><strong>GPU Name: NVIDIA L40S</strong>: L40S GPU가 정상 인식됨 (48GB 메모리 확인 가능)</li>
+<li><strong>Temperature: 28C</strong>: GPU 온도 정상 (유휴 상태)</li>
+<li><strong>Power: 22W / 350W</strong>: 현재 저전력 모드로 동작 중</li>
+</ul>
+<h4 id="32-nouveau-%EB%93%9C%EB%9D%BC%EC%9D%B4%EB%B2%84-%EB%B9%84%ED%99%9C%EC%84%B1%ED%99%94">3.2 Nouveau 드라이버 비활성화</h4>
+<pre class="hljs"><code><div>sudo bash -c <span class="hljs-string">"echo 'blacklist nouveau' &gt; /etc/modprobe.d/blacklist-nouveau.conf"</span>
+<span class="hljs-built_in">echo</span> <span class="hljs-string">'options nouveau modeset=0'</span> | sudo tee -a /etc/modprobe.d/blacklist-nouveau.conf
+sudo update-initramfs -u
+</div></code></pre>
+<h4 id="33-nvidia-%EB%93%9C%EB%9D%BC%EC%9D%B4%EB%B2%84-550-%EC%84%A4%EC%B9%98">3.3 NVIDIA 드라이버 550 설치</h4>
+<pre class="hljs"><code><div>sudo add-apt-repository ppa:graphics-drivers/ppa -y
+sudo apt update
+sudo apt install -y nvidia-driver-550
+sudo reboot
+</div></code></pre>
+<p><strong>재부팅 후 설치 확인:</strong></p>
+<pre class="hljs"><code><div>nvidia-smi
+</div></code></pre>
+<h4 id="34-cuda-123-%EC%84%A4%EC%B9%98">3.4 CUDA 12.3 설치</h4>
+<pre class="hljs"><code><div><span class="hljs-comment"># CUDA 다운로드</span>
+wget https://developer.download.nvidia.com/compute/cuda/12.3.0/local_installers/cuda_12.3.0_545.23.06_linux.run
+</div></code></pre>
+<p><strong>실제 다운로드 출력:</strong></p>
+<pre class="hljs"><code><div>--2025-08-28 23:56:16--  https://developer.download.nvidia.com/compute/cuda/12.3.0/local_installers/cuda_12.3.0_545.23.06_linux.run
+Resolving developer.download.nvidia.com (developer.download.nvidia.com)... 23.55.107.117, 23.55.107.118
+Connecting to developer.download.nvidia.com (developer.download.nvidia.com)|23.55.107.117|:443... connected.
+HTTP request sent, awaiting response... 200 OK
+Length: 4360403711 (4.1G) [application/octet-stream]
+Saving to: 'cuda_12.3.0_545.23.06_linux.run'
+
+cuda_12.3.0_545.23.06_linux.run 100%[============================================&gt;]   4.06G  8.50MB/s    in 9m 52s  
+
+2025-08-29 00:06:10 (7.03 MB/s) - 'cuda_12.3.0_545.23.06_linux.run' saved [4360403711/4360403711]
+</div></code></pre>
+<p><strong>🔍 결과 해석:</strong></p>
+<ul>
+<li><strong>파일 크기: 4.1G</strong>: CUDA 툴킷 전체 패키지가 성공적으로 다운로드</li>
+<li><strong>다운로드 속도: 7.03 MB/s</strong>: 네트워크 연결 상태 양호</li>
+<li><strong>소요시간: 9분 52초</strong>: 정상적인 다운로드 시간</li>
+</ul>
+<pre class="hljs"><code><div><span class="hljs-comment"># CUDA 설치</span>
+sudo sh cuda_12.3.0_545.23.06_linux.run
+
+<span class="hljs-comment"># 환경 변수 설정</span>
+<span class="hljs-built_in">echo</span> <span class="hljs-string">'export PATH=/usr/local/cuda-12.3/bin:$PATH'</span> &gt;&gt; ~/.bashrc
+<span class="hljs-built_in">echo</span> <span class="hljs-string">'export LD_LIBRARY_PATH=/usr/local/cuda-12.3/lib64:$LD_LIBRARY_PATH'</span> &gt;&gt; ~/.bashrc
+<span class="hljs-built_in">source</span> ~/.bashrc
+</div></code></pre>
+<p><strong>설치 확인:</strong></p>
+<pre class="hljs"><code><div>nvcc --version
+</div></code></pre>
+<h3 id="4-docker-%ED%99%98%EA%B2%BD-%EC%84%A4%EC%A0%95">4. Docker 환경 설정</h3>
+<h4 id="41-docker-%EC%A0%80%EC%9E%A5%EC%86%8C-%EC%B6%94%EA%B0%80">4.1 Docker 저장소 추가</h4>
+<pre class="hljs"><code><div><span class="hljs-comment"># Docker GPG 키 추가</span>
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/trusted.gpg.d/docker.gpg
+
+<span class="hljs-comment"># Docker 저장소 추가</span>
+<span class="hljs-built_in">echo</span> <span class="hljs-string">"deb [arch=amd64] https://download.docker.com/linux/ubuntu <span class="hljs-variable">$(lsb_release -cs)</span> stable"</span> | sudo tee /etc/apt/sources.list.d/docker.list
+</div></code></pre>
+<p><strong>실제 출력:</strong></p>
+<pre class="hljs"><code><div>deb [arch=amd64] https://download.docker.com/linux/ubuntu jammy stable
+</div></code></pre>
+<p><strong>🔍 결과 해석:</strong></p>
+<ul>
+<li><strong>jammy</strong>: Ubuntu 22.04 LTS 코드명 확인</li>
+<li>Docker 공식 저장소가 정상적으로 추가됨</li>
+</ul>
+<h4 id="42-docker-%EC%84%A4%EC%B9%98">4.2 Docker 설치</h4>
+<pre class="hljs"><code><div>sudo apt update
+sudo apt install -y docker.io
+sudo systemctl <span class="hljs-built_in">enable</span> --now docker
+</div></code></pre>
+<p><strong>실제 설치 출력:</strong></p>
+<pre class="hljs"><code><div>Reading package lists... Done
+Building dependency tree... Done
+Reading state information... Done
+The following additional packages will be installed:
+  bridge-utils containerd pigz runc ubuntu-fan
+Suggested packages:
+  ifupdown aufs-tools btrfs-progs cgroupfs-mount | cgroup-lite debootstrap docker-buildx docker-compose-v2
+  docker-doc rinse zfs-fuse | zfsutils
+The following NEW packages will be installed:
+  bridge-utils containerd docker.io pigz runc ubuntu-fan
+0 upgraded, 6 newly installed, 0 to remove and 3 not upgraded.
+Need to get 79.2 MB of archives.
+After this operation, 299 MB of additional disk space will be used.
+
+...
+
+Setting up docker.io (27.5.1-0ubuntu3~22.04.2) ...
+Adding group `docker' (GID 140) ...
+Done.
+Created symlink /etc/systemd/system/multi-user.target.wants/docker.service → /lib/systemd/system/docker.service.
+Created symlink /etc/systemd/system/sockets.target.wants/docker.socket → /lib/systemd/system/docker.socket.
+Processing triggers for man-db (2.10.2-1) ...
+</div></code></pre>
+<p><strong>🔍 결과 해석:</strong></p>
+<ul>
+<li><strong>6개 패키지 설치</strong>: Docker 및 필수 의존성 패키지들이 정상 설치</li>
+<li><strong>docker 그룹 생성</strong>: GID 140으로 docker 그룹이 생성됨</li>
+<li><strong>systemd 서비스 등록</strong>: Docker가 시스템 서비스로 자동 시작 설정됨</li>
+</ul>
+<p><strong>설치 확인:</strong></p>
+<pre class="hljs"><code><div>docker --version
+sudo systemctl status docker
+</div></code></pre>
+<p><strong>실제 상태 확인 출력:</strong></p>
+<pre class="hljs"><code><div>● docker.service - Docker Application Container Engine
+     Loaded: loaded (/lib/systemd/system/docker.service; enabled; vendor preset: enabled)
+     Active: active (running) since Fri 2025-08-29 15:14:52 KST; 23s ago
+TriggeredBy: ● docker.socket
+       Docs: https://docs.docker.com
+   Main PID: 21083 (dockerd)
+      Tasks: 20
+     Memory: 24.2M
+        CPU: 453ms
+     CGroup: /system.slice/docker.service
+             └─21083 /usr/bin/dockerd -H fd:// --containerd=/run/containerd/containerd.sock
+
+ 8월 29 15:14:51 super systemd[1]: Starting Docker Application Container Engine...
+ 8월 29 15:14:52 super dockerd[21083]: time=&quot;2025-08-29T15:14:52.011581742+09:00&quot; level=info msg=&quot;Starting up&quot;
+ 8월 29 15:14:52 super dockerd[21083]: time=&quot;2025-08-29T15:14:52.012464421+09:00&quot; level=info msg=&quot;OTEL tracing is not configured, using no-op tracer provider&quot;
+ 8월 29 15:14:52 super dockerd[21083]: time=&quot;2025-08-29T15:14:52.012611150+09:00&quot; level=info msg=&quot;detected 127.0.0.53 nameserver, assuming systemd-resolved, so using resolv.conf: /run/systemd/resolve/resolv.conf&quot;
+ 8월 29 15:14:52 super dockerd[21083]: time=&quot;2025-08-29T15:14:52.097985999+09:00&quot; level=info msg=&quot;Loading containers: start.&quot;
+ 8월 29 15:14:52 super dockerd[21083]: time=&quot;2025-08-29T15:14:52.538028000+09:00&quot; level=info msg=&quot;Loading containers: done.&quot;
+ 8월 29 15:14:52 super dockerd[21083]: time=&quot;2025-08-29T15:14:52.551447955+09:00&quot; level=info msg=&quot;Docker daemon&quot; commit=&quot;27.5.1-0ubuntu3~22.04.2&quot; containerd-snapshotter=false storage-driver=overlay2 version=27.5.1
+ 8월 29 15:14:52 super dockerd[21083]: time=&quot;2025-08-29T15:14:52.551606360+09:00&quot; level=info msg=&quot;Daemon has completed initialization&quot;
+ 8월 29 15:14:52 super dockerd[21083]: time=&quot;2025-08-29T15:14:52.593916256+09:00&quot; level=info msg=&quot;API listen on /run/docker.sock&quot;
+ 8월 29 15:14:52 super systemd[1]: Started Docker Application Container Engine.
+</div></code></pre>
+<p><strong>🔍 결과 해석:</strong></p>
+<ul>
+<li><strong>Active: active (running)</strong>: Docker 데몬이 정상 실행 중</li>
+<li><strong>enabled</strong>: 부팅 시 자동 시작 설정됨</li>
+<li><strong>Main PID: 21083</strong>: Docker 데몬의 프로세스 ID</li>
+<li><strong>Memory: 24.2M</strong>: Docker 데몬의 메모리 사용량 (정상 범위)</li>
+<li><strong>storage-driver=overlay2</strong>: 권장하는 스토리지 드라이버 사용 중</li>
+</ul>
+<h4 id="43-nvidia-container-toolkit-%EC%84%A4%EC%B9%98">4.3 NVIDIA Container Toolkit 설치</h4>
+<pre class="hljs"><code><div><span class="hljs-comment"># NVIDIA Container Toolkit GPG 키 추가</span>
+curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
+
+<span class="hljs-comment"># 저장소 추가</span>
+curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list | sed <span class="hljs-string">'s#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g'</span> | sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
+</div></code></pre>
+<p><strong>실제 출력:</strong></p>
+<pre class="hljs"><code><div>deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://nvidia.github.io/libnvidia-container/stable/deb/$(ARCH) /
+#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://nvidia.github.io/libnvidia-container/experimental/deb/$(ARCH) /
+</div></code></pre>
+<p><strong>🔍 결과 해석:</strong></p>
+<ul>
+<li>NVIDIA Container Toolkit 저장소가 정상적으로 추가됨</li>
+<li>experimental 버전은 주석 처리되어 안정 버전만 사용</li>
+</ul>
+<pre class="hljs"><code><div><span class="hljs-comment"># 설치</span>
+sudo apt update
+sudo apt install -y nvidia-container-toolkit
+</div></code></pre>
+<p><strong>실제 설치 출력:</strong></p>
+<pre class="hljs"><code><div>Reading package lists... Done
+Building dependency tree... Done
+Reading state information... Done
+The following additional packages will be installed:
+  libnvidia-container-tools libnvidia-container1 nvidia-container-toolkit-base
+The following NEW packages will be installed:
+  libnvidia-container-tools libnvidia-container1 nvidia-container-toolkit nvidia-container-toolkit-base
+0 upgraded, 4 newly installed, 0 to remove and 3 not upgraded.
+Need to get 5,929 kB of archives.
+After this operation, 28.2 MB of additional disk space will be used.
+
+Get:1 https://nvidia.github.io/libnvidia-container/stable/deb/amd64  libnvidia-container1 1.17.8-1 [924 kB]
+Get:2 https://nvidia.github.io/libnvidia-container/stable/deb/amd64  libnvidia-container-tools 1.17.8-1 [20.8 kB]
+Get:3 https://nvidia.github.io/libnvidia-container/stable/deb/amd64  nvidia-container-toolkit-base 1.17.8-1 [3,795 kB]
+Get:4 https://nvidia.github.io/libnvidia-container/stable/deb/amd64  nvidia-container-toolkit 1.17.8-1 [1,189 kB]
+Fetched 5,929 kB in 1s (10.7 MB/s)
+</div></code></pre>
+<p><strong>🔍 결과 해석:</strong></p>
+<ul>
+<li><strong>4개 패키지 설치</strong>: NVIDIA Container Toolkit의 모든 구성 요소가 설치됨</li>
+<li><strong>버전 1.17.8-1</strong>: 최신 안정 버전이 설치됨 (가이드의 1.15.0보다 신버전)</li>
+<li><strong>다운로드 속도 10.7 MB/s</strong>: 네트워크 상태 양호</li>
+</ul>
+<h4 id="44-docker-gpu-%EC%A7%80%EC%9B%90-%ED%99%9C%EC%84%B1%ED%99%94">4.4 Docker GPU 지원 활성화</h4>
+<pre class="hljs"><code><div>sudo nvidia-ctk runtime configure --runtime=docker
+sudo systemctl restart docker
+</div></code></pre>
+<p><strong>실제 출력:</strong></p>
+<pre class="hljs"><code><div>INFO[0000] Config file does not exist; using empty config 
+INFO[0000] Wrote updated config to /etc/docker/daemon.json 
+INFO[0000] It is recommended that docker daemon be restarted.
+</div></code></pre>
+<p><strong>🔍 결과 해석:</strong></p>
+<ul>
+<li><strong>Config file does not exist</strong>: 처음 설정이므로 새로운 설정 파일 생성</li>
+<li><strong>Wrote updated config</strong>: Docker 설정에 GPU 지원이 추가됨</li>
+<li>Docker 재시작 권장 메시지 (이미 재시작 명령 포함됨)</li>
+</ul>
+<h3 id="5-%EC%82%AC%EC%9A%A9%EC%9E%90-%EA%B3%84%EC%A0%95-%EC%83%9D%EC%84%B1-docker-%EC%84%A4%EC%B9%98-%ED%9B%84-%EC%A7%84%ED%96%89">5. 사용자 계정 생성 (Docker 설치 후 진행)</h3>
+<blockquote>
+<p><strong>중요</strong>: Docker 그룹 권한을 주려면 Docker가 먼저 설치되어 있어야 합니다.</p>
+</blockquote>
+<pre class="hljs"><code><div><span class="hljs-comment"># 연구실 사용자 계정 생성</span>
+sudo adduser dclcom55
+</div></code></pre>
+<p><strong>실제 계정 생성 출력:</strong></p>
+<pre class="hljs"><code><div>Adding user `dclcom55' ...
+Adding new group `dclcom55' (1001) ...
+Adding new user `dclcom55' (1001) with group `dclcom55' ...
+Creating home directory `/home/dclcom55' ...
+Copying files from `/etc/skel' ...
+New password: 
+BAD PASSWORD: The password is shorter than 8 characters
+Retype new password: 
+Sorry, passwords do not match.
+New password: 
+BAD PASSWORD: The password is shorter than 8 characters
+Retype new password: 
+passwd: password updated successfully
+Changing the user information for dclcom55
+Enter the new value, or press ENTER for the default
+	Full Name []: 
+	Room Number []: 
+	Work Phone []: 
+	Home Phone []: 
+	Other []: 
+Is the information correct? [Y/n] y
+</div></code></pre>
+<p><strong>🔍 결과 해석:</strong></p>
+<ul>
+<li><strong>새 그룹 생성</strong>: dclcom55 그룹이 GID 1001로 생성됨</li>
+<li><strong>사용자 ID</strong>: UID 1001로 사용자 생성</li>
+<li><strong>홈 디렉토리 생성</strong>: /home/dclcom55 디렉토리가 생성됨</li>
+<li><strong>패스워드 정책</strong>: 8자 미만 비밀번호는 보안상 경고 표시 (하지만 설정 가능)</li>
+</ul>
+<pre class="hljs"><code><div><span class="hljs-comment"># sudo 및 docker 권한 부여</span>
+sudo usermod -aG sudo,docker dclcom55
+
+<span class="hljs-comment"># 권한 확인</span>
+groups dclcom55
+</div></code></pre>
+<p><strong>실제 권한 확인 출력:</strong></p>
+<pre class="hljs"><code><div>dclcom55 : dclcom55 sudo docker
+</div></code></pre>
+<p><strong>🔍 결과 해석:</strong></p>
+<ul>
+<li><strong>dclcom55</strong>: 기본 사용자 그룹</li>
+<li><strong>sudo</strong>: 관리자 권한 그룹에 추가됨</li>
+<li><strong>docker</strong>: Docker 명령어 실행 권한 그룹에 추가됨</li>
+</ul>
+<h3 id="6-ssh-%EB%B3%B4%EC%95%88-%EC%84%A4%EC%A0%95">6. SSH 보안 설정</h3>
+<pre class="hljs"><code><div>sudo nano /etc/ssh/sshd_config
+</div></code></pre>
+<p><strong>설정 내용:</strong></p>
+<pre class="hljs"><code><div>PermitRootLogin no              # Root 로그인 차단
+PasswordAuthentication yes      # 비밀번호 인증 허용
+PubkeyAuthentication yes        # SSH 키 인증 허용
+Port 22                         # 기본 포트 유지
+</div></code></pre>
+<pre class="hljs"><code><div>sudo systemctl restart sshd
+</div></code></pre>
+<h3 id="7-%EC%B5%9C%EC%A2%85-%EA%B2%80%EC%A6%9D">7. 최종 검증</h3>
+<h4 id="71-docker-%EA%B8%B0%EB%B3%B8-%ED%85%8C%EC%8A%A4%ED%8A%B8">7.1 Docker 기본 테스트</h4>
+<pre class="hljs"><code><div>docker run hello-world
+</div></code></pre>
+<p><strong>실제 테스트 출력:</strong></p>
+<pre class="hljs"><code><div>Unable to find image 'hello-world:latest' locally
+latest: Pulling from library/hello-world
+17eec7bbc9d7: Pull complete 
+Digest: sha256:a0dfb02aac212703bfcb339d77d47ec32c8706ff250850ecc0e19c8737b18567
+Status: Downloaded newer image for hello-world:latest
+
+Hello from Docker!
+This message shows that your installation appears to be working correctly.
+
+To generate this message, Docker took the following steps:
+ 1. The Docker client contacted the Docker daemon.
+ 2. The Docker daemon pulled the &quot;hello-world&quot; image from the Docker Hub.
+    (amd64)
+ 3. The Docker daemon created a new container from that image which runs the
+    executable that produces the output you are currently reading.
+ 4. The Docker daemon streamed that output to the Docker client, which sent it
+    to your terminal.
+
+To try something more ambitious, you can run an Ubuntu container with:
+ $ docker run -it ubuntu bash
+
+Share images, automate workflows, and more with a free Docker ID:
+ https://hub.docker.com/
+
+For more examples and ideas, visit:
+ https://docs.docker.com/get-started/
+</div></code></pre>
+<p><strong>🔍 결과 해석:</strong></p>
+<ul>
+<li><strong>이미지 다운로드</strong>: Docker Hub에서 hello-world 이미지를 성공적으로 다운로드</li>
+<li><strong>컨테이너 실행</strong>: Docker 엔진이 정상 작동하여 컨테이너 실행 성공</li>
+<li><strong>네트워킹 정상</strong>: Docker Hub 연결 및 이미지 풀링이 정상 작동</li>
+<li><strong>&quot;Hello from Docker!&quot; 메시지</strong>: Docker 설치가 완전히 성공했음을 의미</li>
+</ul>
+<h4 id="72-gpu-%EC%A7%80%EC%9B%90-%ED%85%8C%EC%8A%A4%ED%8A%B8">7.2 GPU 지원 테스트</h4>
+<pre class="hljs"><code><div>docker run --rm --gpus all nvidia/cuda:12.3.2-base-ubuntu22.04 nvidia-smi
+</div></code></pre>
+<p><strong>실제 GPU 테스트 출력:</strong></p>
+<pre class="hljs"><code><div>Unable to find image 'nvidia/cuda:12.3.2-base-ubuntu22.04' locally
+12.3.2-base-ubuntu22.04: Pulling from nvidia/cuda
+01007420e9b0: Pull complete 
+bfc08b17629d: Pull complete 
+86fc789646b5: Pull complete 
+6b62141c2a21: Pull complete 
+e0e30e504698: Pull complete 
+Digest: sha256:8cecfe099315f73127d6d5cc43fce32c7ffff4ea0460eefac48f2b7d811ce857
+Status: Downloaded newer image for nvidia/cuda:12.3.2-base-ubuntu22.04
+
+Fri Aug 29 08:54:38 2025       
++-----------------------------------------------------------------------------------------+
+| NVIDIA-SMI 550.163.01             Driver Version: 550.163.01     CUDA Version: 12.4     |
+|-----------------------------------------+------------------------+----------------------+
+| GPU  Name                 Persistence-M | Bus-Id          Disp.A | Volatile Uncorr. ECC |
+| Fan  Temp   Perf          Pwr:Usage/Cap |           Memory-Usage | GPU-Util  Compute M. |
+|                                         |                        |               MIG M. |
+|=========================================+========================+======================|
+|   0  NVIDIA L40S                    Off |   00000000:31:00.0 Off |                    0 |
+| N/A   28C    P8             24W /  350W |      11MiB /  46068MiB |      0%      Default |
+|                                         |                        |                  N/A |
++-----------------------------------------+------------------------+----------------------+
+                                                                                         
++-----------------------------------------------------------------------------------------+
+| Processes:                                                                              |
+|  GPU   GI   CI        PID   Type   Process name                              GPU Memory |
+|        ID   ID                                                               Usage      |
+|=========================================================================================|
++-----------------------------------------------------------------------------------------+
+</div></code></pre>
+<p><strong>🔍 결과 해석:</strong></p>
+<ul>
+<li><strong>CUDA 이미지 다운로드 성공</strong>: NVIDIA 공식 CUDA 12.3.2 이미지가 정상 다운로드됨</li>
+<li><strong>컨테이너 내부에서 GPU 인식</strong>: Docker 컨테이너 안에서 GPU가 정상적으로 인식됨</li>
+<li><strong>NVIDIA Container Toolkit 정상 작동</strong>: 호스트의 GPU를 컨테이너가 성공적으로 사용</li>
+<li><strong>GPU 메모리 접근 가능</strong>: 46GB GPU 메모리가 컨테이너에서 접근 가능</li>
+<li><strong>프로세스 목록 비어있음</strong>: 컨테이너 내부에서 GPU를 독점 사용 가능한 상태</li>
+</ul>
+<h2 id="c-%EA%B0%9C%EB%B0%9C-%ED%99%98%EA%B2%BD-%EC%82%AC%EC%9A%A9%EB%B2%95">C. 개발 환경 사용법</h2>
+<h3 id="1-%ED%94%84%EB%A1%9C%EC%A0%9D%ED%8A%B8-%ED%8C%8C%EC%9D%BC-%EC%A4%80%EB%B9%84">1. 프로젝트 파일 준비</h3>
+<p>클라이언트 PC에서 프로젝트 폴더에 다음 파일들을 준비:</p>
+<pre class="hljs"><code><div>프로젝트_폴더/
+├── Dockerfile
+├── .devcontainer/devcontainer.json
+└── vscode-server-linux-x64.tar.gz
+</div></code></pre>
+<h4 id="vs-code-server-%ED%8C%8C%EC%9D%BC%EC%97%90-%EB%8C%80%ED%95%9C-%EC%84%A4%EB%AA%85">VS Code Server 파일에 대한 설명</h4>
+<p><strong><code>vscode-server-linux-x64.tar.gz</code>가 필요한 이유:</strong></p>
+<ol>
+<li><strong>원격 개발 환경 구성</strong>: 원격 서버에 VS Code 환경을 구성하여 로컬 PC의 편리한 개발 인터페이스를 그대로 유지하면서 원격 서버 자원과 환경을 활용</li>
+<li><strong>효율적 개발</strong>: 로컬 PC와 원격 서버 간 파일 전송 없이 바로 서버에서 작업 가능</li>
+<li><strong>일관된 개발 환경</strong>: 다양한 개발 환경(컨테이너, 클라우드 VM, 사설망 서버 등)에서 동일한 IDE 경험 제공</li>
+<li><strong>최적화된 연동</strong>: 원격 서버의 운영체제 및 아키텍처에 맞는 서버 구성 요소를 설치하여 VS Code와 원활한 연동</li>
+</ol>
+<p><strong>수동 준비가 필요한 경우:</strong></p>
+<ul>
+<li><strong>인터넷 차단 환경</strong>: 원격 서버가 인터넷에 연결되어 있지 않거나 사설망(망분리 환경)인 경우</li>
+<li><strong>자동 다운로드 불가</strong>: VS Code가 자동으로 서버용 설치 파일을 다운로드하기 어려운 환경</li>
+<li><strong>보안 정책</strong>: 외부 다운로드가 제한된 환경</li>
+</ul>
+<p><strong>VS Code Server 파일 준비 방법:</strong></p>
+<ol>
+<li>
+<p><strong>VS Code에서 commit ID 확인</strong>:</p>
+<pre class="hljs"><code><div><span class="hljs-comment"># VS Code에서 Ctrl+Shift+P 후 "Developer: Reload Window"</span>
+<span class="hljs-comment"># Help → About에서 Commit ID 확인</span>
+</div></code></pre>
+</li>
+<li>
+<p><strong>공식 저장소에서 다운로드</strong>:</p>
+<pre class="hljs"><code><div><span class="hljs-comment"># 예시: commit ID가 6f17636121051a53c88d3e605c491d22af2ba755인 경우</span>
+wget https://github.com/microsoft/vscode-server/releases/download/6f17636121051a53c88d3e605c491d22af2ba755/vscode-server-linux-x64.tar.gz
+</div></code></pre>
+</li>
+<li>
+<p><strong>프로젝트 폴더로 복사</strong>:</p>
+<pre class="hljs"><code><div><span class="hljs-comment"># 다운로드한 파일을 프로젝트 폴더에 복사</span>
+cp vscode-server-linux-x64.tar.gz /path/to/your/project/
+</div></code></pre>
+</li>
+<li>
+<p><strong>SSH로 서버에 업로드</strong>:</p>
+<pre class="hljs"><code><div><span class="hljs-comment"># 프로젝트 전체를 서버로 복사</span>
+scp -r /path/to/project/ dclcom55@서버IP주소:/home/dclcom55/
+</div></code></pre>
+</li>
+</ol>
+<h3 id="2-dockerfile-%EC%9E%91%EC%84%B1">2. Dockerfile 작성</h3>
+<pre class="hljs"><code><div><span class="hljs-keyword">FROM</span> tensorflow/tensorflow:<span class="hljs-number">2.17</span>.<span class="hljs-number">0</span>-gpu-jupyter
+
+<span class="hljs-comment"># 시스템 패키지 설치</span>
+<span class="hljs-keyword">RUN</span><span class="bash"> apt-get update &amp;&amp; apt-get install -y build-essential llvm libegl1 libgl1 libgomp1 libx11-6 libx11-dev libffi-dev git wget curl software-properties-common &amp;&amp; rm -rf /var/lib/apt/lists/*</span>
+
+<span class="hljs-comment"># Python 패키지 설치</span>
+<span class="hljs-keyword">RUN</span><span class="bash"> pip install sionna==1.0.2</span>
+<span class="hljs-keyword">RUN</span><span class="bash"> pip uninstall -y tensorflow tensorflow-gpu</span>
+<span class="hljs-keyword">RUN</span><span class="bash"> pip install tensorflow==2.17.0</span>
+
+<span class="hljs-keyword">RUN</span><span class="bash"> pip install --upgrade ipykernel jupyterlab geopandas shapely open3d contextily tensorboard-plugin-profile cupy-cuda12x</span>
+
+<span class="hljs-comment"># 버전 호환성 관리</span>
+<span class="hljs-keyword">RUN</span><span class="bash"> pip uninstall -y numpy scipy protobuf</span>
+<span class="hljs-keyword">RUN</span><span class="bash"> pip install numpy==1.24.3 scipy==1.14.1 --no-deps protobuf==4.25.3 --no-deps seaborn==0.12.2</span>
+
+<span class="hljs-comment"># VS Code Server 설정 (선택사항)</span>
+<span class="hljs-keyword">ARG</span> VSCODE_SERVER_COMMIT
+<span class="hljs-keyword">COPY</span><span class="bash"> vscode-server-linux-x64.tar.gz /tmp/</span>
+<span class="hljs-keyword">RUN</span><span class="bash"> <span class="hljs-keyword">if</span> [ -n <span class="hljs-string">"<span class="hljs-variable">$VSCODE_SERVER_COMMIT</span>"</span> ]; <span class="hljs-keyword">then</span> mkdir -p /root/.vscode-server/bin/<span class="hljs-variable">$VSCODE_SERVER_COMMIT</span> &amp;&amp; tar -xzf /tmp/vscode-server-linux-x64.tar.gz -C /root/.vscode-server/bin/<span class="hljs-variable">$VSCODE_SERVER_COMMIT</span> --strip-components 1 &amp;&amp; rm /tmp/vscode-server-linux-x64.tar.gz; <span class="hljs-keyword">fi</span></span>
+
+<span class="hljs-keyword">WORKDIR</span><span class="bash"> /workspace</span>
+<span class="hljs-keyword">CMD</span><span class="bash"> [<span class="hljs-string">"jupyter"</span>, <span class="hljs-string">"lab"</span>, <span class="hljs-string">"--port=8889"</span>, <span class="hljs-string">"--no-browser"</span>, <span class="hljs-string">"--NotebookApp.token=''"</span>, <span class="hljs-string">"--ip=0.0.0.0"</span>, <span class="hljs-string">"--allow-root"</span>, <span class="hljs-string">"--NotebookApp.allow_origin='*'"</span>]</span>
+</div></code></pre>
+<h3 id="3-devcontainerjson-%EC%9E%91%EC%84%B1">3. devcontainer.json 작성</h3>
+<pre class="hljs"><code><div>{
+    <span class="hljs-attr">"name"</span>: <span class="hljs-string">"GPU-Development"</span>,
+    <span class="hljs-attr">"build"</span>: {
+        <span class="hljs-attr">"context"</span>: <span class="hljs-string">".."</span>,
+        <span class="hljs-attr">"dockerfile"</span>: <span class="hljs-string">"../Dockerfile"</span>,
+        <span class="hljs-attr">"args"</span>: {
+            <span class="hljs-attr">"VSCODE_SERVER_COMMIT"</span>: <span class="hljs-string">"6f17636121051a53c88d3e605c491d22af2ba755"</span>
+        }
+    },
+    <span class="hljs-attr">"runArgs"</span>: [<span class="hljs-string">"--gpus=all"</span>, <span class="hljs-string">"--privileged=true"</span>],
+    <span class="hljs-attr">"containerEnv"</span>: {
+        <span class="hljs-attr">"NVIDIA_DRIVER_CAPABILITIES"</span>: <span class="hljs-string">"graphics,compute,utility"</span>
+    },
+    <span class="hljs-attr">"customizations"</span>: {
+        <span class="hljs-attr">"vscode"</span>: {
+            <span class="hljs-attr">"extensions"</span>: [
+                <span class="hljs-string">"ms-python.python"</span>,
+                <span class="hljs-string">"ms-python.vscode-pylance"</span>,
+                <span class="hljs-string">"ms-python.black-formatter"</span>,
+                <span class="hljs-string">"ms-toolsai.jupyter"</span>
+            ],
+            <span class="hljs-attr">"settings"</span>: {
+                <span class="hljs-attr">"python.interpreterPath"</span>: <span class="hljs-string">"/usr/local/bin/python"</span>
+            }
+        }
+    },
+    <span class="hljs-attr">"forwardPorts"</span>: [<span class="hljs-number">8889</span>],
+    <span class="hljs-attr">"postCreateCommand"</span>: <span class="hljs-string">"pip install black pylint"</span>,
+    <span class="hljs-attr">"remoteUser"</span>: <span class="hljs-string">"root"</span>
+}
+</div></code></pre>
+<h3 id="4-%EC%82%AC%EC%9A%A9-%EB%B0%A9%EB%B2%95">4. 사용 방법</h3>
+<h4 id="%EB%B0%A9%EB%B2%95-1-vs-code-%EB%98%90%EB%8A%94-cursor-ai-dev-container-%EC%B6%94%EC%B2%9C">방법 1: VS Code (또는 Cursor AI) Dev Container (추천)</h4>
+<ol>
+<li>VS Code(또는 Cursor AI)에서 Remote SSH 확장 설치</li>
+<li><code>Ctrl+Shift+P</code> → &quot;Remote-SSH: Connect to Host&quot;</li>
+<li><code>dclcom55@서버IP주소</code> 입력</li>
+<li>프로젝트 폴더 열기</li>
+<li><code>Ctrl+Shift+P</code> → &quot;Dev Containers: Reopen in Container&quot;</li>
+</ol>
+<h4 id="%EB%B0%A9%EB%B2%95-2-ssh--jupyter-lab">방법 2: SSH + Jupyter Lab</h4>
+<pre class="hljs"><code><div><span class="hljs-comment"># 1. SSH 접속</span>
+ssh dclcom55@서버IP주소
+
+<span class="hljs-comment"># 2. 프로젝트 폴더로 이동</span>
+<span class="hljs-built_in">cd</span> /path/to/project
+
+<span class="hljs-comment"># 3. Docker 컨테이너 실행</span>
+docker build -t my-tensorflow:latest .
+docker run --gpus all -p 8889:8889 -v $(<span class="hljs-built_in">pwd</span>):/workspace my-tensorflow:latest
+
+<span class="hljs-comment"># 4. 로컬에서 포트 포워딩 (별도 터미널)</span>
+ssh -L 8889:localhost:8889 dclcom55@서버IP주소
+
+<span class="hljs-comment"># 5. 브라우저에서 접속</span>
+<span class="hljs-comment"># http://localhost:8889</span>
+</div></code></pre>
+<h2 id="d-%EA%B5%AC%EC%84%B1-%EC%9A%94%EC%86%8C-%EB%B2%84%EC%A0%84-%EC%9A%94%EC%95%BD">D. 구성 요소 버전 요약</h2>
+<table>
+<thead>
+<tr>
+<th>구성 요소</th>
+<th>설치 버전</th>
+<th>상태</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Ubuntu</td>
+<td>22.04 LTS</td>
+<td>✅</td>
+</tr>
+<tr>
+<td>NVIDIA 드라이버</td>
+<td>550.163.01</td>
+<td>✅</td>
+</tr>
+<tr>
+<td>CUDA</td>
+<td>12.3.0</td>
+<td>✅</td>
+</tr>
+<tr>
+<td>Docker</td>
+<td>27.5.1</td>
+<td>✅</td>
+</tr>
+<tr>
+<td>Container Toolkit</td>
+<td>1.17.8</td>
+<td>✅</td>
+</tr>
+<tr>
+<td>TensorFlow</td>
+<td>2.17.0</td>
+<td>✅</td>
+</tr>
+</tbody>
+</table>
+<h2 id="e-%ED%8A%B8%EB%9F%AC%EB%B8%94%EC%8A%88%ED%8C%85">E. 트러블슈팅</h2>
+<h3 id="%EC%9D%BC%EB%B0%98%EC%A0%81%EC%9D%B8-%EB%AC%B8%EC%A0%9C">일반적인 문제</h3>
+<p><strong>1. GPU 인식 불가</strong></p>
+<ul>
+<li>증상: <code>nvidia-smi</code> 명령이 작동하지 않음</li>
+<li>해결: 드라이버 재설치 또는 재부팅 필요</li>
+</ul>
+<p><strong>2. Docker 권한 오류</strong></p>
+<ul>
+<li>증상: <code>permission denied while trying to connect to the Docker daemon socket</code></li>
+<li>해결: 사용자를 docker 그룹에 추가 후 재로그인<pre class="hljs"><code><div>sudo usermod -aG docker <span class="hljs-variable">$USER</span>
+<span class="hljs-comment"># 재로그인 필요</span>
+</div></code></pre>
+</li>
+</ul>
+<p><strong>3. CUDA 버전 불일치</strong></p>
+<ul>
+<li>증상: 컨테이너에서 GPU를 인식하지 못함</li>
+<li>해결: 환경 변수 PATH 확인 및 CUDA 재설치</li>
+</ul>
+<p><strong>4. SSH 접속 불가</strong></p>
+<ul>
+<li>증상: 원격 접속이 되지 않음</li>
+<li>해결: 네트워크 설정 및 SSH 서비스 상태 확인<pre class="hljs"><code><div>sudo systemctl status sshd
+</div></code></pre>
+</li>
+</ul>
+<h3 id="%EC%97%B0%EB%9D%BD%EC%B2%98">연락처</h3>
+<p>문제 발생 시 연구실 관리자 또는 슈퍼솔루션 담당자에게 연락:</p>
+<ul>
+<li>슈퍼솔루션 유영준 차장: 010-7623-6561</li>
+</ul>
+<hr>
+
+</body>
+</html>

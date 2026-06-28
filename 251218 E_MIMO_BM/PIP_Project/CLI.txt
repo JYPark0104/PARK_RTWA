@@ -1,0 +1,2 @@
+
+nohup python -u 251100_Weichsel_Collection/P1P_BM_SWOMP_2511v5.py > 251100_Weichsel_Collection/P1P_Project/P1P_v5_$(date -u -d '+9 hours' +'%Y%m%d_%H%M%S').log 2>&1 &

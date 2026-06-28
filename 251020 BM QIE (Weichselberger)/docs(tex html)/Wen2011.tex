@@ -1,0 +1,599 @@
+\documentclass[10pt]{article}
+\usepackage[a4paper, margin=1in]{geometry}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{multirow}
+\usepackage[hangul]{kotex}
+\usepackage{algorithm}
+\usepackage{algorithmic}
+\usepackage{xcolor}
+\usepackage{listingsutf8}
+
+\lstset{
+  language=Python,
+  basicstyle=\small\ttfamily,
+  keywordstyle=\color{blue}\bfseries,
+  commentstyle=\color{gray}\itshape,
+  stringstyle=\color{red},
+  showstringspaces=false,
+  breaklines=true,
+  frame=single,
+  numbers=left,
+  numberstyle=\tiny\color{gray},
+  xleftmargin=2em,
+  framexleftmargin=1.5em,
+  captionpos=b,
+  tabsize=2
+}
+
+\title{MU-MIMO Weichselberger Rician Channel\\
+점근적 최적 입력 공분산 계산}
+\author{}
+\date{}
+
+\begin{document}
+
+\maketitle
+
+
+
+\section{채널 모델}
+
+\subsection{기본 파라미터}
+
+\paragraph{Uplink 시나리오:} 다중 단말(UE)이 단일 기지국(BS)으로 신호 전송
+
+\begin{itemize}
+\item $N_{\text{bs}}$: 기지국(BS) 수신 안테나 수
+\item $N_{\text{ue}}$: 각 단말(UE)의 송신 안테나 수 (모든 단말 동일)
+\item $K$: 단말 수, $M \triangleq K N_{\text{ue}}$: 전체 송신 안테나 수
+\end{itemize}
+
+\subsection{채널 통계 (Weichselberger 모델)}
+
+각 사용자 $k$의 uplink 채널 (UE $k$ $\to$ BS):
+
+\begin{itemize}
+\item $\mathbf{U}_{\text{bs},k} = [\mathbf{u}_{\text{bs},k,1}, \cdots, \mathbf{u}_{\text{bs},k,N_{\text{bs}}}] \in \mathbb{C}^{N_{\text{bs}} \times N_{\text{bs}}}$: BS 수신측 고유벡터 행렬 (unitary)
+\item $\mathbf{U}_{\text{ue},k} = [\mathbf{u}_{\text{ue},k,1}, \cdots, \mathbf{u}_{\text{ue},k,N_{\text{ue}}}] \in \mathbb{C}^{N_{\text{ue}} \times N_{\text{ue}}}$: UE $k$ 송신측 고유벡터 행렬 (unitary)
+\item $\boldsymbol{\Omega}_k \in \mathbb{R}_+^{N_{\text{bs}} \times N_{\text{ue}}}$: 커플링 행렬 (coupling matrix)
+\item $\bar{\mathbf{H}}_k \in \mathbb{C}^{N_{\text{bs}} \times N_{\text{ue}}}$: LOS 성분, $\bar{\mathbf{H}} \triangleq [\bar{\mathbf{H}}_1, \cdots, \bar{\mathbf{H}}_K] \in \mathbb{C}^{N_{\text{bs}} \times M}$
+\end{itemize}
+
+\paragraph{파라미터 추정:} 채널 샘플로부터 다음과 같이 추정:
+\begin{align*}
+\mathbf{R}_{\text{ue},k} &= \mathbb{E}[\mathbf{H}_k^{\mathsf{H}} \mathbf{H}_k] = \mathbf{U}_{\text{ue},k} \mathbf{\Lambda}_{\text{ue},k} \mathbf{U}_{\text{ue},k}^{\mathsf{H}} \quad \text{(eigendecomposition)} \\
+\mathbf{R}_{\text{bs},k} &= \mathbb{E}[\mathbf{H}_k \mathbf{H}_k^{\mathsf{H}}] = \mathbf{U}_{\text{bs},k} \mathbf{\Lambda}_{\text{bs},k} \mathbf{U}_{\text{bs},k}^{\mathsf{H}} \quad \text{(eigendecomposition)} \\
+[\boldsymbol{\Omega}_k]_{q,p} &= \mathbb{E}[|\mathbf{u}_{\text{bs},k,q}^{\mathsf{H}} \mathbf{H}_k \mathbf{u}_{\text{ue},k,p}|^2] \quad \text{(고유빔 공간 평균 전력)}
+\end{align*}
+
+\section*{표기법}
+
+\begin{itemize}
+\item $\langle \mathbf{A} \rangle_k$: 행렬 $\mathbf{A}$에서 사용자 $k$에 해당하는 부분행렬 (인덱스 $(k-1)N_{\text{ue}} + 1$ to $k N_{\text{ue}}$)
+\item $\mathbf{A}^{\mathsf{H}}$: Hermitian transpose (켤레전치), $\mathbf{A}^{\mathsf{T}}$: transpose (전치)
+\item $\mathbf{1}_N$: $N$-dimensional all-ones vector
+\item $(x)^+ \triangleq \max\{x, 0\}$: non-negative part, $\mathbf{A} \succeq 0$: positive semidefinite
+\item $\mathrm{diag}(\cdot)$: diagonal matrix or block-diagonal matrix
+\end{itemize}
+
+\begin{algorithm}[t]
+\caption{점근적 합-전송률 최대화 (Asymptotic Programming)}
+\small
+\begin{algorithmic}[1]
+\STATE \textbf{Input:} 채널 통계 $\{\mathbf{U}_{\text{bs},k}, \mathbf{U}_{\text{ue},k}, \boldsymbol{\Omega}_k, \bar{\mathbf{H}}_k\}_{k=1}^K$
+\STATE \textbf{Output:} 최대 점근적 합-전송률 $\mathbb{I}^* = \max_{\mathbf{P}} \mathbb{I}(\mathbf{P})$ (및 최적 입력 공분산 $\mathbf{P}^*$)
+\STATE \textbf{Initialize:} $\mathbf{P}_k^{(0)} = \mathbf{I}_{N_{\text{ue}}}$, $\forall k$; $t \gets 0$
+\REPEAT
+\STATE \textbf{[Step A: 고정점 계산]} $\boldsymbol{\gamma}_k^{(0)} = \mathbf{1}_{N_{\text{bs}}}$, $\boldsymbol{\psi}_k^{(0)} = \mathbf{1}_{N_{\text{ue}}}$; $i \gets 0$
+\REPEAT
+\STATE $\mathbf{T}_k^{(i)} = \mathbf{U}_{\text{ue},k} \mathrm{diag}(\boldsymbol{\Omega}_k^{\mathsf{T}} \boldsymbol{\gamma}_k^{(i)}) \mathbf{U}_{\text{ue},k}^{\mathsf{H}}$, $\mathbf{R}_k^{(i)} = \mathbf{U}_{\text{bs},k} \mathrm{diag}(\boldsymbol{\Omega}_k \boldsymbol{\psi}_k^{(i)}) \mathbf{U}_{\text{bs},k}^{\mathsf{H}}$, $\forall k$ \hfill (10)
+\STATE $\mathbf{T}^{(i)} = \mathrm{diag}(\mathbf{T}_1^{(i)}, \cdots, \mathbf{T}_K^{(i)})$, $\mathbf{R}^{(i)} = \sum_{k} \mathbf{R}_k^{(i)}$ \hfill (8a,9)
+\STATE $\boldsymbol{\Xi}^{(i)} = \mathbf{T}^{(i)} + \bar{\mathbf{H}}^{\mathsf{H}} (\mathbf{I} + \mathbf{R}^{(i)})^{-1} \bar{\mathbf{H}}$ \hfill (8)
+\STATE $\gamma_{k,n}^{(i+1)} = \mathbf{u}_{\text{bs},k,n}^{\mathsf{H}} (\mathbf{I} + \mathbf{R}^{(i)})^{-1} \mathbf{u}_{\text{bs},k,n}$, $\forall k,n$ \hfill (11a)
+\STATE $\psi_{k,m}^{(i+1)} = \mathbf{u}_{\text{ue},k,m}^{\mathsf{H}} \mathbf{P}_k^{(t)} \langle (\mathbf{I} + \boldsymbol{\Xi}^{(i)} \mathbf{P}^{(t)})^{-1} \rangle_k \mathbf{u}_{\text{ue},k,m}$, $\forall k,m$ \hfill (11b)
+\STATE $i \gets i + 1$
+\UNTIL{$\max_k \|\boldsymbol{\gamma}_k^{(i)} - \boldsymbol{\gamma}_k^{(i-1)}\| < \epsilon_{\text{in}}$}
+\STATE $\mathbb{I}(\mathbf{P}^{(t)}) = \log \det(\mathbf{I} + \boldsymbol{\Xi}^{(i)} \mathbf{P}^{(t)}) + \log \det(\mathbf{I} + \mathbf{R}^{(i)}) - \sum_{k} (\boldsymbol{\gamma}_k^{(i)})^{\mathsf{T}} \boldsymbol{\Omega}_k \boldsymbol{\psi}_k^{(i)}$ \hfill (7)
+\STATE
+\STATE \textbf{[Step B: Water-Filling]} For each $k=1,\cdots,K$:
+\STATE \quad $\widetilde{\boldsymbol{\Xi}}_k^{(t)} = \langle (\mathbf{I} + \boldsymbol{\Xi}^{(t)} \mathbf{P}_{\backslash k}^{(t)})^{-1} \boldsymbol{\Xi}^{(t)} \rangle_k = \mathbf{U}_{\Xi_k}^{(t)} \boldsymbol{\Lambda}_{\Xi_k}^{(t)} (\mathbf{U}_{\Xi_k}^{(t)})^{\mathsf{H}}$ \hfill (26)
+\STATE \quad $[\boldsymbol{\Lambda}_{P_k}^{(t+1)}]_{m,m} = \left( \frac{1}{\mu_k^{(t)}} - \frac{1}{[\boldsymbol{\Lambda}_{\Xi_k}^{(t)}]_{m,m}} \right)^+$, $\forall m$; $\mu_k^{(t)}$ s.t. $\sum_m [\boldsymbol{\Lambda}_{P_k}^{(t+1)}]_{m,m} = N_{\text{ue}}$ \hfill (30)
+\STATE \quad $\mathbf{P}_k^{(t+1)} = \mathbf{U}_{\Xi_k}^{(t)} \boldsymbol{\Lambda}_{P_k}^{(t+1)} (\mathbf{U}_{\Xi_k}^{(t)})^{\mathsf{H}}$ \hfill (29)
+\STATE $t \gets t + 1$
+\UNTIL{$|\mathbb{I}(\mathbf{P}^{(t)}) - \mathbb{I}(\mathbf{P}^{(t-1)})| < \epsilon_{\text{out}}$}
+\RETURN $\mathbb{I}^* = \mathbb{I}(\mathbf{P}^{(t)})$ and $\mathbf{P}^* = \mathrm{diag}(\mathbf{P}_1^{(t)}, \cdots, \mathbf{P}_K^{(t)})$
+\end{algorithmic}
+\end{algorithm}
+
+\section{Proposition 1: 점근적 합-전송률}
+
+\subsection{문제 정의}
+
+주어진 입력 공분산 $\mathbf{P}$에 대해, 점근적 합-전송률:
+\begin{equation}
+\mathbb{I}(\mathbf{P}) = \log \det(\mathbf{I} + \boldsymbol{\Xi} \mathbf{P}) + \log \det(\mathbf{I} + \mathbf{R}) - \sum_{k=1}^{K} \boldsymbol{\gamma}_k^{\mathsf{T}} \boldsymbol{\Omega}_k \boldsymbol{\psi}_k, \tag{7}
+\end{equation}
+여기서 $(\boldsymbol{\gamma}_k, \boldsymbol{\psi}_k)$는 다음 고정점 방정식의 해:
+\begin{align}
+\gamma_{k,n} &= \mathbf{u}_{\text{bs},k,n}^{\mathsf{H}} (\mathbf{I} + \mathbf{R})^{-1} \mathbf{u}_{\text{bs},k,n}, \tag{11a}\\
+\psi_{k,m} &= \mathbf{u}_{\text{ue},k,m}^{\mathsf{H}} \mathbf{P}_k \langle (\mathbf{I} + \boldsymbol{\Xi} \mathbf{P})^{-1} \rangle_k \mathbf{u}_{\text{ue},k,m}, \tag{11b}
+\end{align}
+그리고 $\mathbf{T}_k, \mathbf{R}_k, \mathbf{T}, \mathbf{R}, \boldsymbol{\Xi}$는 식 (10), (8), (9)로 정의.
+
+\subsection{고정점 계산}
+
+식 (11)은 순환 의존성을 가짐:
+\[
+(\boldsymbol{\gamma}_k, \boldsymbol{\psi}_k) \xrightarrow{\text{(10)}} (\mathbf{T}_k, \mathbf{R}_k) \xrightarrow{\text{(8), (9)}} (\boldsymbol{\Xi}, \mathbf{R}) \xrightarrow{\text{(11)}} (\boldsymbol{\gamma}_k, \boldsymbol{\psi}_k).
+\]
+
+반복 계산으로 수렴된 고정점 해 $(\boldsymbol{\gamma}_k^*, \boldsymbol{\psi}_k^*)$ 획득.
+
+\subsection{이론적 성질}
+
+\begin{itemize}
+\item 해의 유일성: Appendix B에서 증명 (초기값에 무관하게 같은 해로 수렴)
+\item 빠른 수렴: 일반적으로 1-2 inner iterations
+\end{itemize}
+
+\section{Proposition 2: 최적 입력 공분산}
+
+\subsection{문제 정의}
+
+주어진 $(\boldsymbol{\gamma}_k, \boldsymbol{\psi}_k)$에 대해, 각 사용자 $k$의 최적화 문제:
+\begin{equation}
+\max_{\mathbf{P}_k} \log \det(\mathbf{I} + \widetilde{\boldsymbol{\Xi}}_k \mathbf{P}_k), \quad \text{subject to } \mathrm{tr}(\mathbf{P}_k) \leq N_{\text{ue}}, \, \mathbf{P}_k \succeq 0,
+\end{equation}
+여기서 등가 채널 $\widetilde{\boldsymbol{\Xi}}_k$는 식 (26)으로 정의.
+
+\subsection{최적 해 (Water-Filling)}
+
+$\widetilde{\boldsymbol{\Xi}}_k$의 eigenvalue 분해 $\widetilde{\boldsymbol{\Xi}}_k = \mathbf{U}_{\Xi_k} \boldsymbol{\Lambda}_{\Xi_k} \mathbf{U}_{\Xi_k}^{\mathsf{H}}$에 대해:
+\begin{equation}
+\mathbf{P}^*_k = \mathbf{U}_{\Xi_k} \boldsymbol{\Lambda}^*_{P_k} \mathbf{U}_{\Xi_k}^{\mathsf{H}}, \tag{29}
+\end{equation}
+여기서 eigenvalue는 water-filling 공식 (30)으로 결정.
+
+\subsection{해석}
+
+최적 $\mathbf{P}^*_k$의 eigenvector는 등가 채널 $\widetilde{\boldsymbol{\Xi}}_k$의 eigenvector 방향과 정렬되며, eigenvalue는 채널 이득에 따른 water-filling으로 결정.
+
+
+
+\section{요약}
+
+\subsection{알고리즘 목적}
+
+주어진 채널 통계에 대해 점근적 합-전송률을 최대화:
+\begin{equation*}
+\mathbb{I}^* = \max_{\mathbf{P}} \mathbb{I}(\mathbf{P}) = \max_{\mathbf{P}} \left[ \log \det(\mathbf{I} + \boldsymbol{\Xi} \mathbf{P}) + \log \det(\mathbf{I} + \mathbf{R}) - \sum_{k} \boldsymbol{\gamma}_k^{\mathsf{T}} \boldsymbol{\Omega}_k \boldsymbol{\psi}_k \right]
+\end{equation*}
+
+여기서 $\mathbf{P}^*$는 이를 달성하는 최적 입력 공분산 (중간 변수).
+
+\subsection{전체 흐름}
+
+\begin{equation*}
+\boxed{
+\mathbf{P}^{(0)} = \mathbf{I} \quad 
+\xrightarrow[\text{Prop. 1}]{\text{고정점 (11)}} \quad
+(\gamma, \psi)^{(t)} \quad
+\xrightarrow[\text{Prop. 2}]{\text{water-fill (29,30)}} \quad
+\mathbf{P}^{(t+1)} \quad
+\to \cdots \to \quad \mathbb{I}^* = \mathbb{I}(\mathbf{P}^*)
+}
+\end{equation*}
+
+\subsection{구성 요소}
+
+Algorithm 1은 Proposition 1과 2를 교대로 실행하여 $\mathbb{I}(\mathbf{P})$를 단조 증가:
+\begin{itemize}
+\item 외부 루프: $\mathbf{P}$와 $(\gamma, \psi)$를 교대 최적화하여 $\mathbb{I}(\mathbf{P})$ 최대화
+\item 내부 루프 (Proposition 1): 고정된 $\mathbf{P}$에 대해 $\mathbb{I}(\mathbf{P})$ 계산
+\item Water-filling (Proposition 2): 고정된 $(\gamma, \psi)$에 대해 $\mathbb{I}$ 증가시키는 $\mathbf{P}_k$ 계산
+\end{itemize}
+
+\newpage
+\section{TensorFlow 구현}
+
+\subsection{클래스 구조}
+
+\begin{lstlisting}[caption={AsymptoticSumRateOptimizer Class}]
+import tensorflow as tf
+import numpy as np
+from typing import List, Tuple, Dict
+
+class AsymptoticSumRateOptimizer:
+  """
+  Asymptotic sum-rate maximization for MU-MIMO uplink channels
+  with Weichselberger Rician fading (K UEs -> 1 BS)
+  """
+  
+  def __init__(self, 
+               U_bs_list: List[tf.Tensor],
+               U_ue_list: List[tf.Tensor],
+               Omega_list: List[tf.Tensor],
+               H_bar_list: List[tf.Tensor],
+               eps_inner: float = 1e-6,
+               eps_outer: float = 1e-5,
+               max_iter_inner: int = 50,
+               max_iter_outer: int = 100,
+               regularization: float = 1e-10):
+    """
+    Input:
+      U_bs_list: [U_bs_k], k=1..K, shape (N_bs, N_bs) - BS receiver eigenvectors
+      U_ue_list: [U_ue_k], k=1..K, shape (N_ue, N_ue) - UE k transmitter eigenvectors
+      Omega_list: [Omega_k], k=1..K, shape (N_bs, N_ue) - coupling matrix
+      H_bar_list: [H_bar_k], k=1..K, shape (N_bs, N_ue) - LOS component
+      eps_inner, eps_outer: convergence tolerance
+      max_iter_inner, max_iter_outer: iteration limits
+      regularization: numerical stability parameter
+    """
+    self.U_bs_list = [tf.cast(U, tf.complex64) for U in U_bs_list]
+    self.U_ue_list = [tf.cast(U, tf.complex64) for U in U_ue_list]
+    self.Omega_list = [tf.cast(Omega, tf.float32) for Omega in Omega_list]
+    self.H_bar_list = [tf.cast(H, tf.complex64) for H in H_bar_list]
+    
+    self.K = len(U_bs_list)
+    self.N_bs = U_bs_list[0].shape[0]
+    self.N_ue = U_ue_list[0].shape[0]  # All users have same N_ue
+    self.M = self.K * self.N_ue
+    
+    self.H_bar = tf.concat(H_bar_list, axis=1)
+    
+    self.eps_inner = eps_inner
+    self.eps_outer = eps_outer
+    self.max_iter_inner = max_iter_inner
+    self.max_iter_outer = max_iter_outer
+    self.reg = regularization
+\end{lstlisting}
+
+\subsection{고정점 계산 (Proposition 1)}
+
+\begin{lstlisting}[caption={Fixed-Point Computation Method}]
+  def compute_fixed_point(self, P_list: List[tf.Tensor]) -> Tuple:
+    """
+    Solve fixed-point equations (11) for given P_k
+    
+    Output:
+      gamma_list: [gamma_k], gamma_k shape (N_bs,)
+      psi_list: [psi_k], psi_k shape (N_ue,)
+      sum_rate: I(P)
+    """
+    # Initialize
+    gamma_list = [tf.ones(self.N_bs, dtype=tf.float32) for _ in range(self.K)]
+    psi_list = [tf.ones(self.N_ue, dtype=tf.float32) for _ in range(self.K)]
+    
+    P_block = tf.linalg.LinearOperatorBlockDiag(
+      [tf.linalg.LinearOperatorFullMatrix(P_k) for P_k in P_list]
+    ).to_dense()
+    
+    for i in range(self.max_iter_inner):
+      gamma_prev = [tf.identity(g) for g in gamma_list]
+      
+      # (10) Compute T_k, R_k
+      T_list, R_list = [], []
+      for k in range(self.K):
+        Omega_T_gamma = tf.matmul(tf.transpose(self.Omega_list[k]), 
+                                  tf.expand_dims(gamma_list[k], -1))
+        T_k = self.U_ue_list[k] @ tf.linalg.diag(tf.squeeze(Omega_T_gamma)) @ tf.linalg.adjoint(self.U_ue_list[k])
+        
+        Omega_psi = tf.matmul(self.Omega_list[k], 
+                              tf.expand_dims(psi_list[k], -1))
+        R_k = self.U_bs_list[k] @ tf.linalg.diag(tf.cast(tf.squeeze(Omega_psi), tf.complex64)) @ tf.linalg.adjoint(self.U_bs_list[k])
+        
+        T_list.append(T_k)
+        R_list.append(R_k)
+      
+      # (8a,9) Compute T, R
+      T_block = tf.linalg.LinearOperatorBlockDiag(
+        [tf.linalg.LinearOperatorFullMatrix(T_k) for T_k in T_list]
+      ).to_dense()
+      R = tf.reduce_sum(tf.stack(R_list), axis=0)
+      
+      # (8) Compute Xi (numerically stable)
+      I_R = tf.eye(self.N_bs, dtype=tf.complex64) + R + self.reg * tf.eye(self.N_bs, dtype=tf.complex64)
+      H_bar_T = tf.linalg.adjoint(self.H_bar)
+      Xi = T_block + H_bar_T @ tf.linalg.solve(I_R, self.H_bar)
+      
+      # (11a) Update gamma
+      I_R_inv_stable = tf.linalg.inv(I_R)
+      for k in range(self.K):
+        gamma_k_new = []
+        for n in range(self.N_bs):
+          u_bs_n = self.U_bs_list[k][:, n:n+1]
+          gamma_kn = tf.math.real(
+            tf.squeeze(tf.linalg.adjoint(u_bs_n) @ I_R_inv_stable @ u_bs_n)
+          )
+          gamma_k_new.append(gamma_kn)
+        gamma_list[k] = tf.stack(gamma_k_new)
+      
+      # (11b) Update psi
+      I_Xi_P = tf.eye(self.M, dtype=tf.complex64) + Xi @ P_block + self.reg * tf.eye(self.M, dtype=tf.complex64)
+      I_Xi_P_inv = tf.linalg.inv(I_Xi_P)
+      
+      start_idx = 0
+      for k in range(self.K):
+        end_idx = start_idx + self.N_ue
+        I_Xi_P_inv_k = I_Xi_P_inv[start_idx:end_idx, start_idx:end_idx]
+        
+        psi_k_new = []
+        for m in range(self.N_ue):
+          u_ue_m = self.U_ue_list[k][:, m:m+1]
+          psi_km = tf.math.real(
+            tf.squeeze(tf.linalg.adjoint(u_ue_m) @ P_list[k] @ I_Xi_P_inv_k @ u_ue_m)
+          )
+          psi_k_new.append(psi_km)
+        psi_list[k] = tf.stack(psi_k_new)
+        start_idx = end_idx
+      
+      # Convergence check
+      max_diff = tf.reduce_max([tf.norm(gamma_list[k] - gamma_prev[k]) 
+                                for k in range(self.K)])
+      if max_diff < self.eps_inner:
+        break
+    
+    # (7) Compute I(P)
+    sum_rate = self._compute_sum_rate(P_block, Xi, R, gamma_list, psi_list)
+    
+    return gamma_list, psi_list, sum_rate
+\end{lstlisting}
+
+\subsection{Water-Filling (Proposition 2)}
+
+\begin{lstlisting}[caption={Water-Filling Method}]
+  def water_filling(self, P_list: List[tf.Tensor], 
+                    Xi: tf.Tensor) -> List[tf.Tensor]:
+    """
+    Compute optimal P_k for given Xi
+    
+    Output:
+      P_list_new: [P_k^(t+1)]
+    """
+    P_list_new = []
+    
+    for k in range(self.K):
+      # Compute P_{\k}
+      P_excl_k = [P_list[j] if j != k else tf.zeros_like(P_list[j]) 
+                  for j in range(self.K)]
+      P_excl_k_block = tf.linalg.LinearOperatorBlockDiag(
+        [tf.linalg.LinearOperatorFullMatrix(P) for P in P_excl_k]
+      ).to_dense()
+      
+      # (26) Compute Xi_tilde_k
+      I_Xi_P = tf.eye(self.M, dtype=tf.complex64) + Xi @ P_excl_k_block + self.reg * tf.eye(self.M, dtype=tf.complex64)
+      
+      start_idx = k * self.N_ue
+      end_idx = start_idx + self.N_ue
+      
+      Xi_tilde_k_full = tf.linalg.solve(I_Xi_P, Xi)
+      Xi_tilde_k = Xi_tilde_k_full[start_idx:end_idx, start_idx:end_idx]
+      
+      # Eigenvalue decomposition
+      eigvals, eigvecs = tf.linalg.eigh(Xi_tilde_k)
+      eigvals = tf.math.real(eigvals)
+      eigvals = tf.maximum(eigvals, self.reg)
+      
+      # (30) Water-filling
+      mu_k = self._find_water_level(eigvals, self.N_ue)
+      Lambda_P_k = tf.maximum(1.0 / mu_k - 1.0 / eigvals, 0.0)
+      
+      # (29) Reconstruct P_k
+      P_k_new = eigvecs @ tf.linalg.diag(Lambda_P_k) @ tf.linalg.adjoint(eigvecs)
+      P_list_new.append(P_k_new)
+    
+    return P_list_new
+  
+  def _find_water_level(self, eigvals: tf.Tensor, N_ue: int) -> float:
+    """
+    Compute water-filling level mu_k: sum_m (1/mu - 1/lambda_m)^+ = N_ue
+    """
+    eigvals_np = eigvals.numpy()
+    
+    def objective(mu):
+      return np.sum(np.maximum(1.0/mu - 1.0/eigvals_np, 0.0)) - N_ue
+    
+    mu_min = 1.0 / np.max(eigvals_np)
+    mu_max = 1.0 / np.min(eigvals_np)
+    
+    # Bisection method
+    while mu_max - mu_min > 1e-8:
+      mu_mid = (mu_min + mu_max) / 2.0
+      if objective(mu_mid) > 0:
+        mu_min = mu_mid
+      else:
+        mu_max = mu_mid
+    
+    return (mu_min + mu_max) / 2.0
+\end{lstlisting}
+
+\subsection{전체 최적화 루프}
+
+\begin{lstlisting}[caption={Main Optimization Loop}]
+  def optimize(self) -> Dict:
+    """
+    Execute full Algorithm 1
+    
+    Output:
+      Result dictionary: {
+        'sum_rate_opt': I^*,
+        'P_opt': [P_k^*],
+        'sum_rate_history': [I(P^(t))],
+        'converged': bool
+      }
+    """
+    # Initialize
+    P_list = [tf.eye(self.N_ue, dtype=tf.complex64) for _ in range(self.K)]
+    sum_rate_history = []
+    sum_rate_prev = -np.inf
+    
+    for t in range(self.max_iter_outer):
+      # Step A: Fixed-point computation
+      gamma_list, psi_list, sum_rate = self.compute_fixed_point(P_list)
+      sum_rate_history.append(sum_rate.numpy())
+      
+      print(f"Iter {t}: I(P) = {sum_rate.numpy():.6f}")
+      
+      # Convergence check
+      if abs(sum_rate.numpy() - sum_rate_prev) < self.eps_outer:
+        print(f"Converged at iteration {t}")
+        return {
+          'sum_rate_opt': sum_rate.numpy(),
+          'P_opt': P_list,
+          'sum_rate_history': sum_rate_history,
+          'converged': True
+        }
+      
+      sum_rate_prev = sum_rate.numpy()
+      
+      # Step B: Water-filling
+      Xi = self._get_current_Xi(P_list, gamma_list, psi_list)
+      P_list = self.water_filling(P_list, Xi)
+    
+    print(f"Max iterations ({self.max_iter_outer}) reached")
+    return {
+      'sum_rate_opt': sum_rate_history[-1],
+      'P_opt': P_list,
+      'sum_rate_history': sum_rate_history,
+      'converged': False
+    }
+  
+  def _compute_sum_rate(self, P, Xi, R, gamma_list, psi_list) -> tf.Tensor:
+    """
+    (7) Compute I(P) (numerically stable logdet)
+    """
+    I_Xi_P = tf.eye(self.M, dtype=tf.complex64) + Xi @ P
+    I_R = tf.eye(self.N_bs, dtype=tf.complex64) + R
+    
+    logdet1 = tf.math.real(tf.linalg.slogdet(I_Xi_P)[1])
+    logdet2 = tf.math.real(tf.linalg.slogdet(I_R)[1])
+    
+    coupling_term = 0.0
+    for k in range(self.K):
+      coupling_term += tf.reduce_sum(
+        gamma_list[k] * tf.squeeze(tf.matmul(self.Omega_list[k], 
+                                              tf.expand_dims(psi_list[k], -1)))
+      )
+    
+    return logdet1 + logdet2 - coupling_term
+  
+  def _get_current_Xi(self, P_list, gamma_list, psi_list) -> tf.Tensor:
+    """
+    Compute Xi from current gamma, psi (for Step B)
+    """
+    T_list, R_list = [], []
+    for k in range(self.K):
+        Omega_T_gamma = tf.matmul(tf.transpose(self.Omega_list[k]), 
+                                  tf.expand_dims(gamma_list[k], -1))
+        T_k = self.U_ue_list[k] @ tf.linalg.diag(tf.squeeze(Omega_T_gamma)) @ tf.linalg.adjoint(self.U_ue_list[k])
+        
+        Omega_psi = tf.matmul(self.Omega_list[k], 
+                              tf.expand_dims(psi_list[k], -1))
+        R_k = self.U_bs_list[k] @ tf.linalg.diag(tf.cast(tf.squeeze(Omega_psi), tf.complex64)) @ tf.linalg.adjoint(self.U_bs_list[k])
+      
+      T_list.append(T_k)
+      R_list.append(R_k)
+    
+    T_block = tf.linalg.LinearOperatorBlockDiag(
+      [tf.linalg.LinearOperatorFullMatrix(T_k) for T_k in T_list]
+    ).to_dense()
+    R = tf.reduce_sum(tf.stack(R_list), axis=0)
+    
+    I_R = tf.eye(self.N_bs, dtype=tf.complex64) + R + self.reg * tf.eye(self.N_bs, dtype=tf.complex64)
+    H_bar_T = tf.linalg.adjoint(self.H_bar)
+    Xi = T_block + H_bar_T @ tf.linalg.solve(I_R, self.H_bar)
+    
+    return Xi
+\end{lstlisting}
+
+\newpage
+\subsection{사용 예시}
+
+\begin{lstlisting}[caption={Usage Example}]
+# MU-MIMO uplink: K UEs (N_ue antennas each) -> 1 BS (N_bs antennas)
+K, N_bs, N_ue = 3, 16, 4
+
+U_bs_list = [tf.linalg.qr(tf.random.normal([N_bs, N_bs], dtype=tf.float32))[0] 
+             for _ in range(K)]
+U_ue_list = [tf.linalg.qr(tf.random.normal([N_ue, N_ue], dtype=tf.float32))[0] 
+             for _ in range(K)]
+Omega_list = [tf.abs(tf.random.normal([N_bs, N_ue], dtype=tf.float32)) 
+              for _ in range(K)]
+H_bar_list = [tf.complex(tf.random.normal([N_bs, N_ue], dtype=tf.float32),
+                         tf.random.normal([N_bs, N_ue], dtype=tf.float32))
+              for _ in range(K)]
+
+# Execute optimization
+optimizer = AsymptoticSumRateOptimizer(
+  U_bs_list, U_ue_list, Omega_list, H_bar_list,
+  eps_inner=1e-6, eps_outer=1e-5
+)
+
+result = optimizer.optimize()
+
+print(f"Optimal sum-rate: {result['sum_rate_opt']:.4f}")
+print(f"Converged: {result['converged']}")
+\end{lstlisting}
+
+\newpage
+
+\subsection{수치 안정성 분석}
+
+\paragraph{핵심 연산의 안정성:}
+
+\begin{itemize}
+\item \textbf{\texttt{tf.linalg.solve}}: LU 분해 + partial pivoting (LAPACK)
+\begin{itemize}
+  \item $(\mathbf{I}+\mathbf{R})^{-1}$ 계산 (1024$\times$1024): $\mathbf{R}$ PSD이므로 조건수 $\kappa \sim 10-10^3$ (안정적)
+  \item $(\mathbf{I}+\boldsymbol{\Xi}\mathbf{P})^{-1}$ 계산 ($K N_{\text{ue}} \times K N_{\text{ue}}$): 일반 행렬, pivoting으로 안정화
+  \item 상대 오차: $\sim \kappa \cdot 10^{-7}$ (float32 기준), 1024 크기에서도 문제없음
+\end{itemize}
+
+\item \textbf{\texttt{tf.linalg.slogdet}}: $\log\det = \sum_i \log|u_{ii}|$ (LU 분해 기반)
+\begin{itemize}
+  \item Overflow/underflow 완벽 방지 ($\det \sim 10^{-960}$ 케이스도 안전)
+  \item 절대 오차: 1024 차원에서 $\sim 10^{-4}$ (무시 가능)
+\end{itemize}
+
+\item \textbf{Eigenvalue decomposition}: \texttt{tf.linalg.eigh} (Hermitian 전용)
+\begin{itemize}
+  \item $\boldsymbol{\Xi}$ (식 8): quadratic form 구조로 Hermitian 보장
+  \item 16$\times$16 크기로 매우 안정적
+\end{itemize}
+\end{itemize}
+
+\paragraph{주요 불안정성 요인:}
+Eigenvalue 역수 계산 (\texttt{1.0/eigvals}): 매우 작은 고유값($< 10^{-10}$) 발생 시 $10^{10}$ 수준 값 생성 → 수치적 불안정.
+
+\subsection{대규모 시스템 권장사항}
+
+$N_{\text{bs}} \gg N_{\text{ue}}$ (예: BS 1024 안테나, UE 16 안테나, 다수 사용자) 규모에서 다음 수정 권장:
+
+\begin{enumerate}
+\item \textbf{Eigenvalue regularization} (water-filling):
+\begin{lstlisting}
+MIN_EIGVAL = 1e-6  # not 1e-10
+eigvals = tf.maximum(eigvals, MIN_EIGVAL)
+Lambda_P_k = tf.maximum(1.0/mu_k - 1.0/eigvals, 0.0)
+\end{lstlisting}
+채널 이득 $< 10^{-6}$인 모드 제외, 역수 최대값 $10^6$으로 제한
+
+\item \textbf{Global regularization}:
+\begin{lstlisting}
+regularization: float = 1e-8  # not 1e-10
+\end{lstlisting}
+Float32 정밀도 고려, 조건수 개선
+
+\item \textbf{Bisection safeguard}:
+\begin{lstlisting}
+safe_eigvals = np.maximum(eigvals_np, 1e-6)
+mu_min = 1.0 / np.max(safe_eigvals) + 1e-10
+mu_max = 1.0 / np.min(safe_eigvals)
+\end{lstlisting}
+Water-filling level 계산 시 안전한 경계값 설정
+\end{enumerate}
+
+\paragraph{효과:} 3개 수정으로 $N_{\text{bs}}=1024$ 규모에서 안정적 작동. \texttt{solve}, \texttt{slogdet} 자체는 변경 불필요.
+
+\end{document}

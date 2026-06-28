@@ -1,0 +1,38 @@
+======================================================================
+9-Case UE Classification Summary
+======================================================================
+
+Angular Density Metric: rho_2d_euc
+
+PL Classification (Path Loss perspective):
+  - Low: 낮은 경로 손실 (절댓값 작음, 신호 강함, cell center)
+  - Mid: 중간 경로 손실
+  - High: 높은 경로 손실 (절댓값 큼, 신호 약함, cell edge)
+
+Total UEs: 612
+
+Case Distribution:
+----------------------------------------------------------------------
+  PL_Low_AD_Low_2d_euc                    :  100 UEs
+  PL_Low_AD_Mid_2d_euc                    :   64 UEs
+  PL_Low_AD_High_2d_euc                   :   40 UEs
+  PL_Mid_AD_Low_2d_euc                    :   47 UEs
+  PL_Mid_AD_Mid_2d_euc                    :   64 UEs
+  PL_Mid_AD_High_2d_euc                   :   91 UEs
+  PL_High_AD_Low_2d_euc                   :   57 UEs
+  PL_High_AD_Mid_2d_euc                   :   76 UEs
+  PL_High_AD_High_2d_euc                  :   73 UEs
+
+Case Statistics (Mean):
+----------------------------------------------------------------------
+Case                                        PL (dB)         AD  SNR_DL (dB)   N_eff_BS
+----------------------------------------------------------------------
+PL_Low_AD_Low_2d_euc                         -70.81     0.3411        52.19       3.03
+PL_Low_AD_Mid_2d_euc                         -71.47     2.2155        51.52       3.20
+PL_Low_AD_High_2d_euc                        -72.95     7.6264        50.05       3.03
+PL_Mid_AD_Low_2d_euc                        -102.22     0.5234        20.78       1.51
+PL_Mid_AD_Mid_2d_euc                         -95.95     2.1710        27.05       1.82
+PL_Mid_AD_High_2d_euc                        -93.32     6.7272        29.68       1.89
+PL_High_AD_Low_2d_euc                       -114.71     0.5727         8.29       1.36
+PL_High_AD_Mid_2d_euc                       -114.32     2.1298         8.68       1.43
+PL_High_AD_High_2d_euc                      -114.64     6.6792         8.36       1.19

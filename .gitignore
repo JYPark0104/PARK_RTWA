@@ -1,0 +1,73 @@
+# ===== twin_minji_verPARK .gitignore =====
+# 원칙: "코드/문서/설정"만 추적. 대용량 데이터·환경·결과물은 제외.
+
+# --- 대용량 데이터 / 결과물 (AGENTS.md 규칙) ---
+*.npz
+*.npy
+*.ply
+*.glb
+*.gltf
+*.blend
+*.blend1
+*.mat
+*.tar.gz
+*.tgz
+*.zip
+*.usda
+*.usd
+*.obj
+*.pcd
+*.pt
+*.pth
+*.ckpt
+*.h5
+*.hdf5
+
+# --- 이미지/문서 산출물(원하면 일부 화이트리스트 가능) ---
+*.pdf
+
+# --- 파이썬 환경/캐시 ---
+.venv*/
+venv/
+env/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+.ipynb_checkpoints/
+
+# --- Node / 프론트엔드 ---
+node_modules/
+dist/
+build/
+.vite/
+*.log
+
+# --- 세션/실행 산출물 (RTWA) ---
+**/sessions/
+**/Batch_RT_Results/
+**/P1A_RT_Results/
+**/P1B_Valid_Results/
+**/*_Results/
+**/logs/
+**/data/rt_run_history.jsonl
+**/live_scatter.json
+**/*.pid
+
+# --- 서버/IDE ---
+vscode-server-linux-x64*/
+.DS_Store
+*.swp
+
+# --- 비밀/환경변수 ---
+.env
+.env.*
+*.key
+*.pem
+secrets*.json
+
+# --- 대용량 스냅샷 폴더(데이터 위주) 통째 제외하려면 주석 해제해서 사용 ---
+# "251020 BM QIE (Weichselberger)/"
+# "251009_CCM_Collection (8 GB)/"
+# "260512 RT Result Data/"

@@ -1,0 +1,1445 @@
+super@super:~$ nvidia-smi
+Thu Aug 28 23:46:11 2025       
++-----------------------------------------------------------------------------------------+
+| NVIDIA-SMI 550.163.01             Driver Version: 550.163.01     CUDA Version: 12.4     |
+|-----------------------------------------+------------------------+----------------------+
+| GPU  Name                 Persistence-M | Bus-Id          Disp.A | Volatile Uncorr. ECC |
+| Fan  Temp   Perf          Pwr:Usage/Cap |           Memory-Usage | GPU-Util  Compute M. |
+|                                         |                        |               MIG M. |
+|=========================================+========================+======================|
+|   0  NVIDIA L40S                    Off |   00000000:31:00.0 Off |                    0 |
+| N/A   28C    P8             22W /  350W |      11MiB /  46068MiB |      0%      Default |
+|                                         |                        |                  N/A |
++-----------------------------------------+------------------------+----------------------+
+                                                                                         
++-----------------------------------------------------------------------------------------+
+| Processes:                                                                              |
+|  GPU   GI   CI        PID   Type   Process name                              GPU Memory |
+|        ID   ID                                                               Usage      |
+|=========================================================================================|
+|    0   N/A  N/A      2704      G   /usr/lib/xorg/Xorg                              4MiB |
++-----------------------------------------------------------------------------------------+
+super@super:~$ wget https://developer.download.nvidia.com/compute/cuda/12.3.0/local_installers/cuda_12.3.0_545.23.06_linux.run
+--2025-08-28 23:56:16--  https://developer.download.nvidia.com/compute/cuda/12.3.0/local_installers/cuda_12.3.0_545.23.06_linux.run
+Resolving developer.download.nvidia.com (developer.download.nvidia.com)... 23.55.107.117, 23.55.107.118
+Connecting to developer.download.nvidia.com (developer.download.nvidia.com)|23.55.107.117|:443... connected.
+HTTP request sent, awaiting response... 200 OK
+Length: 4360403711 (4.1G) [application/octet-stream]
+Saving to: ‘cuda_12.3.0_545.23.06_linux.run’
+
+cuda_12.3.0_545.23.06_linux.run                      0%[                                                                                            linux.run            1%[    _linuxliininnuuxx.run .rruruun      cudacudacuda_12.3.0_545.23.06_cucuda_12.3.0_545.23.06_linux.ru   1%[                                                   ]  76.00M  10.4MB/s    eta 7m 39cuda_12.3.0_545.23.06_linux.ru   1%[                                                  ]  76.24M  10.4MB/s    eta 7m 3cuda_12.3.0_545.23.06_linux.r   1%[                                                  ]  77.10M  10.4MB/s    eta 7m cuda_12.3.0_545.23.06_linux.r   1%[                                                 ]  77.89M  10.4MB/s    eta 7mcuda_1cuda_1cuda_12.3.0_545.23.06_licuda_12.3.0_545.23.06_linux.ru   4%[=>                                                   ] 190.16M  7.94MB/s    eta 7cuda_12.3.0_545.23.06_linux.ru   4%[=>                                                  ] 191.35M  8.05MB/s    eta cuda_12.3.0_545.23.06_linux.ru   4%[=>                                                 ] 192.94M  8.13MB/s    etacuda_12.3.0_545.23.06_linux.ru   4%[=>                                                ] 193.92M  8.07MB/s    etcuda_12.3.0_545.23.06_linux.r   4%[=>                                                ] 194.37M  8.03MB/s    ecuda_12.3.0_545.23.06_linux.r   4%[=>                                               ] 195.19M  cuda_12.3.0_545.23.06_linux.r   4%[=>                                             ] 196.00Mcuda_12.3.0_545.23.06_linux.   4%[=>                                            ] 196.30M  8.13MB/s  cuda_12.3.0_545.23.06_linux.   4%[=>                                           ] 197.18M  8.20MB/s cuda_12.3.0_545.23.06_linux.   4%[=>                                          ] 198.00M  8.00MB/scuda_12.3.0_545.cuda_12.3.0_545.cuda_12.3.0_545.cuda_12.3.0_545.cuda_12.3.0_545.cuda_12.3.0_545.cuda_12.3.0_545.cuda_12.3.0_545.cuda_12.3.0_545.23.06_linux.r   5%[=>                                                ] 214.25M  8.65MB/cuda_12.3.0_545.23.06_linux.r   5%[=>                                               ] 215.10M  8.92MBcuda_12.3.0_545.23.06_linux.r   5%[=>                                              ] 216.00M  8.67Mcuda_12.3.0_545.23.06_linux.r   5%[=>                                             ] 216.22M  8.69cuda_12.3.0_545.23.06_linux.   5%[=>                                             ] 217.10M  8.7cuda_12.3.0_545.23.06_linux.   5%[=>                                            ] 217.96M  8.cuda_12.3.0_545.23.06_cuda_12.3.0_545.23.06_cuda_12.3.0_545.23.06_linux. 100%[==============================================>]   4.06G  8.50MB/s    in 9m 52s  
+
+2025-08-29 00:06:10 (7.03 MB/s) - ‘cuda_12.3.0_545.23.06_linux.run’ saved [4360403711/4360403711]
+
+super@super:~$ sudo sh cuda_12.3.0_545.23.06_linux.run
+[sudo] password for super: 
+
+super@super:~$ echo 'export PATH=/usr/local/cuda-12.3/bin:$PATH' >> ~/.bashrc
+super@super:~$ echo 'export LD_LIBRARY_PATH=/usr/local/cuda-12.3/lib64:$LD_LIBRARY_PATH' >> ~/.bashrc
+source ~/.bashrc
+super@super:~$ curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/trusted.gpg.d/docker.gpg
+[sudo] password for super: 
+super@super:~$ echo "deb [arch=amd64] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list
+deb [arch=amd64] https://download.docker.com/linux/ubuntu jammy stable
+super@super:~$ sudo apt update
+Hit:1 http://kr.archive.ubuntu.com/ubuntu jammy InRelease
+Get:2 http://kr.archive.ubuntu.com/ubuntu jammy-updates InRelease [128 kB]                                         
+Get:3 https://download.docker.com/linux/ubuntu jammy InRelease [48.8 kB]                                           
+Get:4 http://kr.archive.ubuntu.com/ubuntu jammy-backports InRelease [127 kB]                                       
+Get:5 http://kr.archive.ubuntu.com/ubuntu jammy-updates/main i386 Packages [869 kB]                              
+Get:6 http://kr.archive.ubuntu.com/ubuntu jammy-updates/main amd64 Packages [2,874 kB]                             
+Get:7 https://download.docker.com/linux/ubuntu jammy/stable amd64 Packages [54.4 kB]                               
+Get:8 http://kr.archive.ubuntu.com/ubuntu jammy-updates/main Translation-en [451 kB]                               
+Get:9 http://kr.archive.ubuntu.com/ubuntu jammy-updates/main amd64 DEP-11 Metadata [112 kB]                        
+Get:10 http://kr.archive.ubuntu.com/ubuntu jammy-updates/restricted amd64 Packages [4,346 kB]                      
+Get:11 http://security.ubuntu.com/ubuntu jammy-security InRelease [129 kB]                                         
+Get:12 http://kr.archive.ubuntu.com/ubuntu jammy-updates/restricted Translation-en [796 kB]                        
+Get:13 http://kr.archive.ubuntu.com/ubuntu jammy-updates/restricted amd64 DEP-11 Metadata [212 B]                  
+Get:14 http://kr.archive.ubuntu.com/ubuntu jammy-updates/universe i386 Packages [782 kB]                
+Get:15 http://kr.archive.ubuntu.com/ubuntu jammy-updates/universe amd64 Packages [1,227 kB]                       
+Get:16 http://kr.archive.ubuntu.com/ubuntu jammy-updates/universe amd64 DEP-11 Metadata [359 kB]                   
+Get:17 http://kr.archive.ubuntu.com/ubuntu jammy-updates/multiverse amd64 DEP-11 Metadata [940 B]                  
+Get:18 http://kr.archive.ubuntu.com/ubuntu jammy-backports/main amd64 DEP-11 Metadata [7,104 B]                    
+Get:19 http://kr.archive.ubuntu.com/ubuntu jammy-backports/restricted amd64 DEP-11 Metadata [212 B]                
+Get:20 http://kr.archive.ubuntu.com/ubuntu jammy-backports/universe amd64 DEP-11 Metadata [25.8 kB]                
+Hit:21 https://ppa.launchpadcontent.net/graphics-drivers/ppa/ubuntu jammy InRelease                                
+Get:22 http://kr.archive.ubuntu.com/ubuntu jammy-backports/multiverse amd64 DEP-11 Metadata [212 B]                
+Get:23 http://security.ubuntu.com/ubuntu jammy-security/main amd64 Packages [2,629 kB]                 
+Get:24 http://security.ubuntu.com/ubuntu jammy-security/main i386 Packages [697 kB]
+Get:25 http://security.ubuntu.com/ubuntu jammy-security/main Translation-en [387 kB]
+Get:26 http://security.ubuntu.com/ubuntu jammy-security/main amd64 DEP-11 Metadata [54.6 kB]
+Get:27 http://security.ubuntu.com/ubuntu jammy-security/main amd64 c-n-f Metadata [13.8 kB]
+Get:28 http://security.ubuntu.com/ubuntu jammy-security/restricted amd64 Packages [4,202 kB]
+Get:29 http://security.ubuntu.com/ubuntu jammy-security/restricted Translation-en [770 kB]
+Get:30 http://security.ubuntu.com/ubuntu jammy-security/restricted amd64 DEP-11 Metadata [208 B]
+Get:31 http://security.ubuntu.com/ubuntu jammy-security/universe amd64 Packages [995 kB]
+Get:32 http://security.ubuntu.com/ubuntu jammy-security/universe i386 Packages [673 kB]
+Get:33 http://security.ubuntu.com/ubuntu jammy-security/universe amd64 DEP-11 Metadata [126 kB]
+Get:34 http://security.ubuntu.com/ubuntu jammy-security/multiverse amd64 DEP-11 Metadata [208 B]
+Fetched 22.9 MB in 5s (4,593 kB/s)               
+Reading package lists... Done
+Building dependency tree... Done
+Reading state information... Done
+3 packages can be upgraded. Run 'apt list --upgradable' to see them.
+super@super:~$ sudo apt install -y docker-ce=5:24.0.5-1~ubuntu.22.04~jammy docker-ce-cli=5:24.0.5-1~ubuntu.22.04~jammy containerd.io=1.7.2-0ubuntu1~22.04.1
+Reading package lists... Done
+Building dependency tree... Done
+Reading state information... Done
+Package containerd.io is not available, but is referred to by another package.
+This may mean that the package is missing, has been obsoleted, or
+is only available from another source
+
+E: Version '1.7.2-0ubuntu1~22.04.1' for 'containerd.io' was not found
+super@super:~$ sudo apt install -y docker.io
+Reading package lists... Done
+Building dependency tree... Done
+Reading state information... Done
+The following additional packages will be installed:
+  bridge-utils containerd pigz runc ubuntu-fan
+Suggested packages:
+  ifupdown aufs-tools btrfs-progs cgroupfs-mount | cgroup-lite debootstrap docker-buildx docker-compose-v2
+  docker-doc rinse zfs-fuse | zfsutils
+The following NEW packages will be installed:
+  bridge-utils containerd docker.io pigz runc ubuntu-fan
+0 upgraded, 6 newly installed, 0 to remove and 3 not upgraded.
+Need to get 79.2 MB of archives.
+After this operation, 299 MB of additional disk space will be used.
+Get:1 http://kr.archive.ubuntu.com/ubuntu jammy/universe amd64 pigz amd64 2.6-1 [63.6 kB]
+Get:2 http://kr.archive.ubuntu.com/ubuntu jammy/main amd64 bridge-utils amd64 1.7-1ubuntu3 [34.4 kB]
+Get:3 http://kr.archive.ubuntu.com/ubuntu jammy-updates/main amd64 runc amd64 1.2.5-0ubuntu1~22.04.1 [8,093 kB]
+Get:4 http://kr.archive.ubuntu.com/ubuntu jammy-updates/main amd64 containerd amd64 1.7.27-0ubuntu1~22.04.1 [37.8 MB]
+Get:5 http://kr.archive.ubuntu.com/ubuntu jammy-updates/universe amd64 docker.io amd64 27.5.1-0ubuntu3~22.04.2 [33.3 MB]
+Get:6 http://kr.archive.ubuntu.com/ubuntu jammy/universe amd64 ubuntu-fan all 0.12.16 [35.2 kB]                    
+Fetched 79.2 MB in 7s (11.8 MB/s)                                                                                  
+Preconfiguring packages ...
+Selecting previously unselected package pigz.
+(Reading database ... 229256 files and directories currently installed.)
+Preparing to unpack .../0-pigz_2.6-1_amd64.deb ...
+Unpacking pigz (2.6-1) ...
+Selecting previously unselected package bridge-utils.
+Preparing to unpack .../1-bridge-utils_1.7-1ubuntu3_amd64.deb ...
+Unpacking bridge-utils (1.7-1ubuntu3) ...
+Selecting previously unselected package runc.
+Preparing to unpack .../2-runc_1.2.5-0ubuntu1~22.04.1_amd64.deb ...
+Unpacking runc (1.2.5-0ubuntu1~22.04.1) ...
+Selecting previously unselected package containerd.
+Preparing to unpack .../3-containerd_1.7.27-0ubuntu1~22.04.1_amd64.deb ...
+Unpacking containerd (1.7.27-0ubuntu1~22.04.1) ...
+Selecting previously unselected package docker.io.
+Preparing to unpack .../4-docker.io_27.5.1-0ubuntu3~22.04.2_amd64.deb ...
+Unpacking docker.io (27.5.1-0ubuntu3~22.04.2) ...
+Selecting previously unselected package ubuntu-fan.
+Preparing to unpack .../5-ubuntu-fan_0.12.16_all.deb ...
+Unpacking ubuntu-fan (0.12.16) ...
+Setting up runc (1.2.5-0ubuntu1~22.04.1) ...
+Setting up bridge-utils (1.7-1ubuntu3) ...
+Setting up pigz (2.6-1) ...
+Setting up containerd (1.7.27-0ubuntu1~22.04.1) ...
+Created symlink /etc/systemd/system/multi-user.target.wants/containerd.service → /lib/systemd/system/containerd.serv
+ice.
+Setting up ubuntu-fan (0.12.16) ...
+Created symlink /etc/systemd/system/multi-user.target.wants/ubuntu-fan.service → /lib/systemd/system/ubuntu-fan.serv
+ice.
+Setting up docker.io (27.5.1-0ubuntu3~22.04.2) ...
+Adding group `docker' (GID 140) ...
+Done.
+Created symlink /etc/systemd/system/multi-user.target.wants/docker.service → /lib/systemd/system/docker.service.
+Created symlink /etc/systemd/system/sockets.target.wants/docker.socket → /lib/systemd/system/docker.socket.
+Processing triggers for man-db (2.10.2-1) ...
+super@super:~$ sudo systemctl status docker
+● docker.service - Docker Application Container Engine
+     Loaded: loaded (/lib/systemd/system/docker.service; enabled; vendor preset: enabled)
+     Active: active (running) since Fri 2025-08-29 15:14:52 KST; 23s ago
+TriggeredBy: ● docker.socket
+       Docs: https://docs.docker.com
+   Main PID: 21083 (dockerd)
+      Tasks: 20
+     Memory: 24.2M
+        CPU: 453ms
+     CGroup: /system.slice/docker.service
+             └─21083 /usr/bin/dockerd -H fd:// --containerd=/run/containerd/containerd.sock
+
+ 8월 29 15:14:51 super systemd[1]: Starting Docker Application Container Engine...
+ 8월 29 15:14:52 super dockerd[21083]: time="2025-08-29T15:14:52.011581742+09:00" level=info msg="Starting up"
+ 8월 29 15:14:52 super dockerd[21083]: time="2025-08-29T15:14:52.012464421+09:00" level=info msg="OTEL tracing is n>
+ 8월 29 15:14:52 super dockerd[21083]: time="2025-08-29T15:14:52.012611150+09:00" level=info msg="detected 127.0.0.>
+ 8월 29 15:14:52 super dockerd[21083]: time="2025-08-29T15:14:52.097985999+09:00" level=info msg="Loading container>
+ 8월 29 15:14:52 super dockerd[21083]: time="2025-08-29T15:14:52.538028000+09:00" level=info msg="Loading container>
+ 8월 29 15:14:52 super dockerd[21083]: time="2025-08-29T15:14:52.551447955+09:00" level=info msg="Docker daemon" co>
+ 8월 29 15:14:52 super dockerd[21083]: time="2025-08-29T15:14:52.551606360+09:00" level=info msg="Daemon has comple>
+ 8월 29 15:14:52 super dockerd[21083]: time="2025-08-29T15:14:52.593916256+09:00" level=info msg="API listen on /ru>
+ 8월 29 15:14:52 super systemd[1]: Started Docker Application Container Engine.
+ ESCOC
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+nabled; vendor preset: enabled)
+2 KST; 23s ago
+
+
+
+
+
+
+
+d=/run/containerd/containerd.sock
+
+tion Container Engine...
+:14:52.011581742+09:00" level=info msg="Starting up"
+:14:52.012464421+09:00" level=info msg="OTEL tracing is not configured, using no-op tracer provider"
+:14:52.012611150+09:00" level=info msg="detected 127.0.0.53 nameserver, assuming systemd-resolved, so using resolv.>
+:14:52.097985999+09:00" level=info msg="Loading containers: start."
+:14:52.538028000+09:00" level=info msg="Loading containers: done."
+:14:52.551447955+09:00" level=info msg="Docker daemon" commit="27.5.1-0ubuntu3~22.04.2" containerd-snapshotter=fals>
+:14:52.551606360+09:00" level=info msg="Daemon has completed initialization"
+:14:52.593916256+09:00" level=info msg="API listen on /run/docker.sock"
+ion Container Engine.
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+ ESCOD
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+● docker.service - Docker Application Container Engine
+     Loaded: loaded (/lib/systemd/system/docker.service; enabled; vendor preset: enabled)
+     Active: active (running) since Fri 2025-08-29 15:14:52 KST; 23s ago
+TriggeredBy: ● docker.socket
+       Docs: https://docs.docker.com
+   Main PID: 21083 (dockerd)
+      Tasks: 20
+     Memory: 24.2M
+        CPU: 453ms
+     CGroup: /system.slice/docker.service
+             └─21083 /usr/bin/dockerd -H fd:// --containerd=/run/containerd/containerd.sock
+
+ 8월 29 15:14:51 super systemd[1]: Starting Docker Application Container Engine...
+ 8월 29 15:14:52 super dockerd[21083]: time="2025-08-29T15:14:52.011581742+09:00" level=info msg="Starting up"
+ 8월 29 15:14:52 super dockerd[21083]: time="2025-08-29T15:14:52.012464421+09:00" level=info msg="OTEL tracing is n>
+ 8월 29 15:14:52 super dockerd[21083]: time="2025-08-29T15:14:52.012611150+09:00" level=info msg="detected 127.0.0.>
+ 8월 29 15:14:52 super dockerd[21083]: time="2025-08-29T15:14:52.097985999+09:00" level=info msg="Loading container>
+ 8월 29 15:14:52 super dockerd[21083]: time="2025-08-29T15:14:52.538028000+09:00" level=info msg="Loading container>
+ 8월 29 15:14:52 super dockerd[21083]: time="2025-08-29T15:14:52.551447955+09:00" level=info msg="Docker daemon" co>
+ 8월 29 15:14:52 super dockerd[21083]: time="2025-08-29T15:14:52.551606360+09:00" level=info msg="Daemon has comple>
+ 8월 29 15:14:52 super dockerd[21083]: time="2025-08-29T15:14:52.593916256+09:00" level=info msg="API listen on /ru>
+ 8월 29 15:14:52 super systemd[1]: Started Docker Application Container Engine.
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+ ESCOC
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+nabled; vendor preset: enabled)
+2 KST; 23s ago
+
+
+
+
+
+
+
+d=/run/containerd/containerd.sock
+
+tion Container Engine...
+:14:52.011581742+09:00" level=info msg="Starting up"
+:14:52.012464421+09:00" level=info msg="OTEL tracing is not configured, using no-op tracer provider"
+:14:52.012611150+09:00" level=info msg="detected 127.0.0.53 nameserver, assuming systemd-resolved, so using resolv.>
+:14:52.097985999+09:00" level=info msg="Loading containers: start."
+:14:52.538028000+09:00" level=info msg="Loading containers: done."
+:14:52.551447955+09:00" level=info msg="Docker daemon" commit="27.5.1-0ubuntu3~22.04.2" containerd-snapshotter=fals>
+:14:52.551606360+09:00" level=info msg="Daemon has completed initialization"
+:14:52.593916256+09:00" level=info msg="API listen on /run/docker.sock"
+ion Container Engine.
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+ ESCOC
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+t configured, using no-op tracer provider"
+3 nameserver, assuming systemd-resolved, so using resolv.conf: /run/systemd/resolve/resolv.conf"
+: start."
+: done."
+mit="27.5.1-0ubuntu3~22.04.2" containerd-snapshotter=false storage-driver=overlay2 version=27.5.1
+ed initialization"
+/docker.sock"
+
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+ ESCOC
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+onf: /run/systemd/resolve/resolv.conf"
+
+
+ storage-driver=overlay2 version=27.5.1
+
+
+
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+ ESCOD
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+t configured, using no-op tracer provider"
+3 nameserver, assuming systemd-resolved, so using resolv.conf: /run/systemd/resolve/resolv.conf"
+: start."
+: done."
+mit="27.5.1-0ubuntu3~22.04.2" containerd-snapshotter=false storage-driver=overlay2 version=27.5.1
+ed initialization"
+/docker.sock"
+
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+ ESCOD
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+nabled; vendor preset: enabled)
+2 KST; 23s ago
+
+
+
+
+
+
+
+d=/run/containerd/containerd.sock
+
+tion Container Engine...
+:14:52.011581742+09:00" level=info msg="Starting up"
+:14:52.012464421+09:00" level=info msg="OTEL tracing is not configured, using no-op tracer provider"
+:14:52.012611150+09:00" level=info msg="detected 127.0.0.53 nameserver, assuming systemd-resolved, so using resolv.>
+:14:52.097985999+09:00" level=info msg="Loading containers: start."
+:14:52.538028000+09:00" level=info msg="Loading containers: done."
+:14:52.551447955+09:00" level=info msg="Docker daemon" commit="27.5.1-0ubuntu3~22.04.2" containerd-snapshotter=fals>
+:14:52.551606360+09:00" level=info msg="Daemon has completed initialization"
+:14:52.593916256+09:00" level=info msg="API listen on /run/docker.sock"
+ion Container Engine.
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+ ESCOD
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+● docker.service - Docker Application Container Engine
+     Loaded: loaded (/lib/systemd/system/docker.service; enabled; vendor preset: enabled)
+     Active: active (running) since Fri 2025-08-29 15:14:52 KST; 23s ago
+TriggeredBy: ● docker.socket
+       Docs: https://docs.docker.com
+   Main PID: 21083 (dockerd)
+      Tasks: 20
+     Memory: 24.2M
+        CPU: 453ms
+     CGroup: /system.slice/docker.service
+             └─21083 /usr/bin/dockerd -H fd:// --containerd=/run/containerd/containerd.sock
+
+ 8월 29 15:14:51 super systemd[1]: Starting Docker Application Container Engine...
+ 8월 29 15:14:52 super dockerd[21083]: time="2025-08-29T15:14:52.011581742+09:00" level=info msg="Starting up"
+ 8월 29 15:14:52 super dockerd[21083]: time="2025-08-29T15:14:52.012464421+09:00" level=info msg="OTEL tracing is n>
+ 8월 29 15:14:52 super dockerd[21083]: time="2025-08-29T15:14:52.012611150+09:00" level=info msg="detected 127.0.0.>
+ 8월 29 15:14:52 super dockerd[21083]: time="2025-08-29T15:14:52.097985999+09:00" level=info msg="Loading container>
+ 8월 29 15:14:52 super dockerd[21083]: time="2025-08-29T15:14:52.538028000+09:00" level=info msg="Loading container>
+ 8월 29 15:14:52 super dockerd[21083]: time="2025-08-29T15:14:52.551447955+09:00" level=info msg="Docker daemon" co>
+ 8월 29 15:14:52 super dockerd[21083]: time="2025-08-29T15:14:52.551606360+09:00" level=info msg="Daemon has comple>
+ 8월 29 15:14:52 super dockerd[21083]: time="2025-08-29T15:14:52.593916256+09:00" level=info msg="API listen on /ru>
+ 8월 29 15:14:52 super systemd[1]: Started Docker Application Container Engine.
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+ ESCOD
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+● docker.service - Docker Application Container Engine
+     Loaded: loaded (/lib/systemd/system/docker.service; enabled; vendor preset: enabled)
+     Active: active (running) since Fri 2025-08-29 15:14:52 KST; 23s ago
+TriggeredBy: ● docker.socket
+       Docs: https://docs.docker.com
+   Main PID: 21083 (dockerd)
+      Tasks: 20
+     Memory: 24.2M
+        CPU: 453ms
+     CGroup: /system.slice/docker.service
+             └─21083 /usr/bin/dockerd -H fd:// --containerd=/run/containerd/containerd.sock
+
+ 8월 29 15:14:51 super systemd[1]: Starting Docker Application Container Engine...
+ 8월 29 15:14:52 super dockerd[21083]: time="2025-08-29T15:14:52.011581742+09:00" level=info msg="Starting up"
+ 8월 29 15:14:52 super dockerd[21083]: time="2025-08-29T15:14:52.012464421+09:00" level=info msg="OTEL tracing is n>
+ 8월 29 15:14:52 super dockerd[21083]: time="2025-08-29T15:14:52.012611150+09:00" level=info msg="detected 127.0.0.>
+ 8월 29 15:14:52 super dockerd[21083]: time="2025-08-29T15:14:52.097985999+09:00" level=info msg="Loading container>
+ 8월 29 15:14:52 super dockerd[21083]: time="2025-08-29T15:14:52.538028000+09:00" level=info msg="Loading container>
+ 8월 29 15:14:52 super dockerd[21083]: time="2025-08-29T15:14:52.551447955+09:00" level=info msg="Docker daemon" co>
+ 8월 29 15:14:52 super dockerd[21083]: time="2025-08-29T15:14:52.551606360+09:00" level=info msg="Daemon has comple>
+ 8월 29 15:14:52 super dockerd[21083]: time="2025-08-29T15:14:52.593916256+09:00" level=info msg="API listen on /ru>
+ 8월 29 15:14:52 super systemd[1]: Started Docker Application Container Engine.
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+ ESCOD
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+● docker.service - Docker Application Container Engine
+     Loaded: loaded (/lib/systemd/system/docker.service; enabled; vendor preset: enabled)
+     Active: active (running) since Fri 2025-08-29 15:14:52 KST; 23s ago
+TriggeredBy: ● docker.socket
+       Docs: https://docs.docker.com
+   Main PID: 21083 (dockerd)
+      Tasks: 20
+     Memory: 24.2M
+        CPU: 453ms
+     CGroup: /system.slice/docker.service
+             └─21083 /usr/bin/dockerd -H fd:// --containerd=/run/containerd/containerd.sock
+
+ 8월 29 15:14:51 super systemd[1]: Starting Docker Application Container Engine...
+ 8월 29 15:14:52 super dockerd[21083]: time="2025-08-29T15:14:52.011581742+09:00" level=info msg="Starting up"
+ 8월 29 15:14:52 super dockerd[21083]: time="2025-08-29T15:14:52.012464421+09:00" level=info msg="OTEL tracing is n>
+ 8월 29 15:14:52 super dockerd[21083]: time="2025-08-29T15:14:52.012611150+09:00" level=info msg="detected 127.0.0.>
+ 8월 29 15:14:52 super dockerd[21083]: time="2025-08-29T15:14:52.097985999+09:00" level=info msg="Loading container>
+ 8월 29 15:14:52 super dockerd[21083]: time="2025-08-29T15:14:52.538028000+09:00" level=info msg="Loading container>
+ 8월 29 15:14:52 super dockerd[21083]: time="2025-08-29T15:14:52.551447955+09:00" level=info msg="Docker daemon" co>
+ 8월 29 15:14:52 super dockerd[21083]: time="2025-08-29T15:14:52.551606360+09:00" level=info msg="Daemon has comple>
+ 8월 29 15:14:52 super dockerd[21083]: time="2025-08-29T15:14:52.593916256+09:00" level=info msg="API listen on /ru>
+ 8월 29 15:14:52 super systemd[1]: Started Docker Application Container Engine.
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+ ESCOD
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+● docker.service - Docker Application Container Engine
+     Loaded: loaded (/lib/systemd/system/docker.service; enabled; vendor preset: enabled)
+     Active: active (running) since Fri 2025-08-29 15:14:52 KST; 23s ago
+TriggeredBy: ● docker.socket
+       Docs: https://docs.docker.com
+   Main PID: 21083 (dockerd)
+      Tasks: 20
+     Memory: 24.2M
+        CPU: 453ms
+     CGroup: /system.slice/docker.service
+             └─21083 /usr/bin/dockerd -H fd:// --containerd=/run/containerd/containerd.sock
+
+ 8월 29 15:14:51 super systemd[1]: Starting Docker Application Container Engine...
+ 8월 29 15:14:52 super dockerd[21083]: time="2025-08-29T15:14:52.011581742+09:00" level=info msg="Starting up"
+ 8월 29 15:14:52 super dockerd[21083]: time="2025-08-29T15:14:52.012464421+09:00" level=info msg="OTEL tracing is n>
+ 8월 29 15:14:52 super dockerd[21083]: time="2025-08-29T15:14:52.012611150+09:00" level=info msg="detected 127.0.0.>
+ 8월 29 15:14:52 super dockerd[21083]: time="2025-08-29T15:14:52.097985999+09:00" level=info msg="Loading container>
+ 8월 29 15:14:52 super dockerd[21083]: time="2025-08-29T15:14:52.538028000+09:00" level=info msg="Loading container>
+ 8월 29 15:14:52 super dockerd[21083]: time="2025-08-29T15:14:52.551447955+09:00" level=info msg="Docker daemon" co>
+ 8월 29 15:14:52 super dockerd[21083]: time="2025-08-29T15:14:52.551606360+09:00" level=info msg="Daemon has comple>
+ 8월 29 15:14:52 super dockerd[21083]: time="2025-08-29T15:14:52.593916256+09:00" level=info msg="API listen on /ru>
+ 8월 29 15:14:52 super systemd[1]: Started Docker Application Container Engine.
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+
+super@super:~$ docker --version
+Docker version 27.5.1, build 27.5.1-0ubuntu3~22.04.2
+super@super:~$ sudo systemctl status containerd
+● containerd.service - containerd container runtime
+     Loaded: loaded (/lib/systemd/system/containerd.service; enabled; vendor preset: enabled)
+     Active: active (running) since Fri 2025-08-29 15:14:50 KST; 2min 6s ago
+       Docs: https://containerd.io
+   Main PID: 20883 (containerd)
+      Tasks: 22
+     Memory: 18.3M
+        CPU: 317ms
+     CGroup: /system.slice/containerd.service
+             └─20883 /usr/bin/containerd
+
+ 8월 29 15:14:50 super containerd[20883]: time="2025-08-29T15:14:50.284993239+09:00" level=info msg="Start subscrib>
+ 8월 29 15:14:50 super containerd[20883]: time="2025-08-29T15:14:50.285062727+09:00" level=info msg="Start recoveri>
+ 8월 29 15:14:50 super containerd[20883]: time="2025-08-29T15:14:50.285166990+09:00" level=info msg="Start event mo>
+ 8월 29 15:14:50 super containerd[20883]: time="2025-08-29T15:14:50.285622697+09:00" level=info msg="Start snapshot>
+ 8월 29 15:14:50 super containerd[20883]: time="2025-08-29T15:14:50.285671036+09:00" level=info msg="Start cni netw>
+ 8월 29 15:14:50 super containerd[20883]: time="2025-08-29T15:14:50.285682531+09:00" level=info msg="Start streamin>
+ 8월 29 15:14:50 super containerd[20883]: time="2025-08-29T15:14:50.285907972+09:00" level=info msg=serving... addr>
+ 8월 29 15:14:50 super containerd[20883]: time="2025-08-29T15:14:50.285983445+09:00" level=info msg=serving... addr>
+ 8월 29 15:14:50 super containerd[20883]: time="2025-08-29T15:14:50.286054998+09:00" level=info msg="containerd suc>
+ 8월 29 15:14:50 super systemd[1]: Started containerd container runtime.
+
+super@super:~$ docker run --rm --gpus all nvidia/cuda:12.3-base-ubuntu22.04 nvidia-smi
+docker: permission denied while trying to connect to the Docker daemon socket at unix:///var/run/docker.sock: Head "http://%2Fvar%2Frun%2Fdocker.sock/_ping": dial unix /var/run/docker.sock: connect: permission denied.
+See 'docker run --help'.
+super@super:~$ sudo apt --fix-broken install
+Reading package lists... Done
+Building dependency tree... Done
+Reading state information... Done
+0 upgraded, 0 newly installed, 0 to remove and 3 not upgraded.
+super@super:~$ curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
+super@super:~$ curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list | \
+  sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' | \
+> sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
+deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://nvidia.github.io/libnvidia-container/stable/deb/$(ARCH) /
+#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://nvidia.github.io/libnvidia-container/experimental/deb/$(ARCH) /
+super@super:~$ sudo apt update
+Get:1 https://nvidia.github.io/libnvidia-container/stable/deb/amd64  InRelease [1,477 B]
+Hit:2 https://download.docker.com/linux/ubuntu jammy InRelease                                                     
+Get:3 https://nvidia.github.io/libnvidia-container/stable/deb/amd64  Packages [20.4 kB]                            
+Hit:4 http://kr.archive.ubuntu.com/ubuntu jammy InRelease                                                          
+Hit:5 http://kr.archive.ubuntu.com/ubuntu jammy-updates InRelease                                                  
+Hit:6 http://kr.archive.ubuntu.com/ubuntu jammy-backports InRelease                                            
+Hit:7 http://security.ubuntu.com/ubuntu jammy-security InRelease                                               
+Hit:8 https://ppa.launchpadcontent.net/graphics-drivers/ppa/ubuntu jammy InRelease
+Fetched 21.9 kB in 1s (15.7 kB/s)
+Reading package lists... Done
+Building dependency tree... Done
+Reading state information... Done
+3 packages can be upgraded. Run 'apt list --upgradable' to see them.
+super@super:~$ sudo apt install -y nvidia-container-toolkit=1.15.0-1
+Reading package lists... Done
+Building dependency tree... Done
+Reading state information... Done
+Some packages could not be installed. This may mean that you have
+requested an impossible situation or if you are using the unstable
+distribution that some required packages have not yet been created
+or been moved out of Incoming.
+The following information may help to resolve the situation:
+
+The following packages have unmet dependencies:
+ nvidia-container-toolkit : Depends: nvidia-container-toolkit-base (= 1.15.0-1) but 1.17.8-1 is to be installed
+E: Unable to correct problems, you have held broken packages.
+super@super:~$ sudo apt install -y nvidia-container-toolkit
+Reading package lists... Done
+Building dependency tree... Done
+Reading state information... Done
+The following additional packages will be installed:
+  libnvidia-container-tools libnvidia-container1 nvidia-container-toolkit-base
+The following NEW packages will be installed:
+  libnvidia-container-tools libnvidia-container1 nvidia-container-toolkit nvidia-container-toolkit-base
+0 upgraded, 4 newly installed, 0 to remove and 3 not upgraded.
+Need to get 5,929 kB of archives.
+After this operation, 28.2 MB of additional disk space will be used.
+Get:1 https://nvidia.github.io/libnvidia-container/stable/deb/amd64  libnvidia-container1 1.17.8-1 [924 kB]
+Get:2 https://nvidia.github.io/libnvidia-container/stable/deb/amd64  libnvidia-container-tools 1.17.8-1 [20.8 kB]
+Get:3 https://nvidia.github.io/libnvidia-container/stable/deb/amd64  nvidia-container-toolkit-base 1.17.8-1 [3,795 kB]
+Get:4 https://nvidia.github.io/libnvidia-container/stable/deb/amd64  nvidia-container-toolkit 1.17.8-1 [1,189 kB]
+Fetched 5,929 kB in 1s (10.7 MB/s)                  
+Selecting previously unselected package libnvidia-container1:amd64.
+(Reading database ... 229592 files and directories currently installed.)
+Preparing to unpack .../libnvidia-container1_1.17.8-1_amd64.deb ...
+Unpacking libnvidia-container1:amd64 (1.17.8-1) ...
+Selecting previously unselected package libnvidia-container-tools.
+Preparing to unpack .../libnvidia-container-tools_1.17.8-1_amd64.deb ...
+Unpacking libnvidia-container-tools (1.17.8-1) ...
+Selecting previously unselected package nvidia-container-toolkit-base.
+Preparing to unpack .../nvidia-container-toolkit-base_1.17.8-1_amd64.deb ...
+Unpacking nvidia-container-toolkit-base (1.17.8-1) ...
+Selecting previously unselected package nvidia-container-toolkit.
+Preparing to unpack .../nvidia-container-toolkit_1.17.8-1_amd64.deb ...
+Unpacking nvidia-container-toolkit (1.17.8-1) ...
+Setting up nvidia-container-toolkit-base (1.17.8-1) ...
+Setting up libnvidia-container1:amd64 (1.17.8-1) ...
+Setting up libnvidia-container-tools (1.17.8-1) ...
+Setting up nvidia-container-toolkit (1.17.8-1) ...
+Processing triggers for libc-bin (2.35-0ubuntu3.10) ...
+super@super:~$ sudo nvidia-ctk runtime configure --runtime=docker
+INFO[0000] Config file does not exist; using empty config 
+INFO[0000] Wrote updated config to /etc/docker/daemon.json 
+INFO[0000] It is recommended that docker daemon be restarted. 
+super@super:~$ ^C
+super@super:~$ 
+

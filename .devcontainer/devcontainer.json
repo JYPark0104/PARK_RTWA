@@ -1,0 +1,71 @@
+// For format details, see https://aka.ms/devcontainer.json.
+// twin_minji_verPARK — Sionna RT × Beam Management 파이프라인 + 260528 Web Agent
+// 호스트(dclserver78)의 .venv-webagent 를 컨테이너로 재현 + PARK_2 RT/H100 설정 승계.
+{
+    "name": "twin_minji_RT_WebAgent",
+    "build": {
+        // 빌드 컨텍스트를 .devcontainer 한 단계 위(프로젝트 루트)로 지정
+        "context": "..",
+        "dockerfile": "../Dockerfile"
+    },
+
+    // 프로젝트 루트를 /workspace 에 그대로 마운트 (코드/데이터는 이미지에 굽지 않고 마운트)
+    "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=cached",
+    "workspaceFolder": "/workspace",
+
+    // ── [H100 필수] 데드락 방지 및 RT/OptiX 환경 변수 (PARK_2 승계) ──────────────
+    "containerEnv": {
+        "HOME": "/root",                       // [H100 필수] 홈 디렉토리 고정
+        "OMP_NUM_THREADS": "16",               // [H100 필수] OpenMP(NumPy 등) 스레드 제한 (import 전 설정 필수)
+        "DRJIT_THREAD_COUNT": "16",            // [H100 필수] Dr.Jit/Mitsuba 스레드 제한 (RT 핵심)
+        "TF_FORCE_GPU_ALLOW_GROWTH": "true",   // VRAM 점진 할당
+        "CUDA_VISIBLE_DEVICES": "0,1",         // GPU 2장 모두 사용 (사용자 선택). 데드락 징후 시 "0" 로 축소
+                                               //   * NCCL_P2P_DISABLE=1 로 멀티GPU 초기화 데드락은 완화
+        "NCCL_P2P_DISABLE": "1",               // [H100 필수] NVLink P2P 비활성 → 초기화 데드락 방지
+        "NVIDIA_DRIVER_CAPABILITIES": "all",   // [필수] OptiX(libnvoptix.so.1) 주입
+        "NVIDIA_VISIBLE_DEVICES": "all"
+    },
+
+    // ── GPU 노출 / 컨테이너 런타임 인자 ─────────────────────────────────────────
+    "runArgs": [
+        "--gpus", "all",
+        "--shm-size=32g",
+        "--name", "WebAgent_park_server78",
+        "--env", "NVIDIA_DRIVER_CAPABILITIES=all"
+    ],
+
+    // 8900→8800: 백엔드 / 5273→5173: Vite dev (이전 twin_minji 5173/8800 과 충돌 방지)
+    // 8000: 빌드 통합 운영 / 7651: PARK_2 RT 승계
+    "forwardPorts": [8900, 5273, 8000, 7651],
+    "portsAttributes": {
+        "8900": { "label": "WebAgent Backend (FastAPI, host)" },
+        "5273": { "label": "WebAgent Frontend (Vite dev, host)" },
+        "8000": { "label": "WebAgent Unified (built, optional)" },
+        "7651": { "label": "RT Agent (PARK_2 inherited)" }
+    },
+
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "ms-python.python",
+                "ms-python.vscode-pylance",
+                "ms-python.black-formatter",
+                "ms-toolsai.jupyter",
+                "ms-azuretools.vscode-docker",
+                "dbaeumer.vscode-eslint",
+                "esbenp.prettier-vscode",
+                "pkief.material-icon-theme"
+            ],
+            "settings": {
+                // 본 베이스(ubuntu apt python3.10 + alternatives)의 파이썬 경로
+                "python.interpreterPath": "/usr/bin/python",
+                "python.defaultInterpreterPath": "/usr/bin/python"
+            }
+        }
+    },
+
+    // 생성 직후 GPU/주요 라이브러리 인식 여부 확인 (실패해도 컨테이너는 정상 기동)
+    "postCreateCommand": "python -c \"import tensorflow as tf, sionna; print('TF', tf.__version__, 'sionna', sionna.__version__, 'GPUs', len(tf.config.list_physical_devices('GPU')))\" || true",
+
+    "remoteUser": "root"
+}

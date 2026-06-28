@@ -1,0 +1,67 @@
+======================================================================
+Hypothesis Validation
+======================================================================
+
+Hypothesis:
+  - 경로 손실 ↑ (PL_High) → effective 빔 수 ↓
+  - 경로 손실 ↓ (PL_Low) → effective 빔 수 ↑
+
+Expected Pattern:
+  - PL_High (높은 경로 손실, 신호 약함): N_eff 낮음 (단일 빔 집중)
+  - PL_Low (낮은 경로 손실, 신호 강함): N_eff 높음 (다중 빔)
+
+Case-wise Effective Beam Count:
+----------------------------------------------------------------------
+  PL_Low_AD_Low_zen:
+    Mean N_eff: 3.13
+    Median N_eff: 3.20
+    Min N_eff: 2.17
+    Max N_eff: 3.89
+
+  PL_Low_AD_Mid_zen:
+    Mean N_eff: 3.05
+    Median N_eff: 3.10
+    Min N_eff: 1.97
+    Max N_eff: 3.86
+
+  PL_Low_AD_High_zen:
+    Mean N_eff: 3.08
+    Median N_eff: 3.18
+    Min N_eff: 1.84
+    Max N_eff: 3.90
+
+  PL_Mid_AD_Low_zen:
+    Mean N_eff: 1.73
+    Median N_eff: 1.85
+    Min N_eff: 1.00
+    Max N_eff: 3.52
+
+  PL_Mid_AD_Mid_zen:
+    Mean N_eff: 1.91
+    Median N_eff: 2.00
+    Min N_eff: 1.00
+    Max N_eff: 3.15
+
+  PL_Mid_AD_High_zen:
+    Mean N_eff: 1.69
+    Median N_eff: 1.75
+    Min N_eff: 1.00
+    Max N_eff: 2.77
+
+  PL_High_AD_Low_zen:
+    Mean N_eff: 1.46
+    Median N_eff: 1.13
+    Min N_eff: 1.00
+    Max N_eff: 2.93
+
+  PL_High_AD_Mid_zen:
+    Mean N_eff: 1.25
+    Median N_eff: 1.00
+    Min N_eff: 1.00
+    Max N_eff: 2.18
+
+  PL_High_AD_High_zen:
+    Mean N_eff: 1.23
+    Median N_eff: 1.00
+    Min N_eff: 1.00
+    Max N_eff: 2.22

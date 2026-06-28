@@ -1,0 +1,530 @@
+\documentclass[10pt]{article}
+\usepackage[a4paper, margin=1in]{geometry}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage[hangul]{kotex}
+\usepackage{bm}
+\usepackage{algorithm}
+\usepackage{algorithmic}
+
+\title{업링크 빔 세트 최적화: 수식 정리}
+\author{}
+\date{}
+
+\begin{document}
+\maketitle
+
+\section*{개요}
+본 문서는 P1L 프로젝트(업링크 빔 세트 최적화)의 코딩 계획을 위해 핵심 수식을 의존성 기반 순서로 정리한다.
+
+\paragraph{구현 완료 (P1A--P1K).} AE 도메인 Weichselberger 파라미터 추정 및 전체 채널 용량 계산
+
+\paragraph{구현 대상 (P1L).} 빔 도메인 파라미터 변환 및 최적 빔 세트 탐색
+\begin{itemize}
+    \item Stage 1: UE 빔 선택 (단일 빔 평가 $\rightarrow$ Thresholding $\rightarrow$ 조합 탐색)
+    \item Stage 2: BS 빔 선택 (Greedy Addition)
+\end{itemize}
+
+\section{시스템 파라미터}
+
+\subsection{안테나 및 레이어}
+\begin{itemize}
+    \item $N_{\text{bs}} = 1024$: BS 수신 안테나 수
+    \item $N_{\text{ue}} = 16$: UE 송신 안테나 수
+    \item $L_{\text{bs}} = 64$: BS 레이어 수 (가변)
+    \item $L_{\text{ue}} = 4$: UE 레이어 수 (고정)
+    \item $\rho$: SNR (신호 대 잡음비)
+\end{itemize}
+
+\subsection{DFT 코드북 (2차원 오버샘플링 4배)}
+
+\begin{itemize}
+    \item $N_{\text{cb,bs}} = 64$: BS 코드북 크기, $4 \times 4$ 안테나 → $8 \times 8$ 빔 (인덱스 $k \in \{0, \ldots, N_{\text{cb,bs}}-1\}$)
+    \item $N_{\text{cb,ue}} = 16$: UE 코드북 크기, $2 \times 2$ 안테나 → $4 \times 4$ 빔 (인덱스 $\ell \in \{0, \ldots, N_{\text{cb,ue}}-1\}$)
+\end{itemize}
+
+\subsection{빔 선택}
+\begin{itemize}
+    \item $\mathcal{L}$: UE 빔 인덱스 세트, $|\mathcal{L}| = L_{\text{ue}}$ (Stage 1에서 결정)
+    \item $\mathcal{K}$: BS 빔 인덱스 세트, $|\mathcal{K}| = L_{\text{bs}} \leq N_{\text{cb,bs}}$ (Stage 2에서 결정)
+    \item $L_{\text{bs}}$: BS 레이어 개수 (Greedy Addition 종료 시 자동 결정, 예상: $L_{\text{ue}}$ 정도)
+\end{itemize}
+
+\section{P1I/P1J 출력 데이터 (P1L 입력)}
+
+\subsection{AE 도메인 Weichselberger 파라미터 (P1I)}
+
+$\mathbf{H} \in \mathbb{C}^{N_{\text{bs}} \times N_{\text{ue}}}$: naive 채널 = AE 도메인 채널 = 안테나 엘리먼트 채널
+
+UE별로 제공되는 업링크 채널 통계 (Weichselberger 분포 가정):
+\begin{itemize}
+    \item $\bar{\mathbf{H}} \in \mathbb{C}^{N_{\text{bs}} \times N_{\text{ue}}}$: 평균 채널 (LoS, 정규화)
+    \item $\mathbf{U}_{\text{bs}} \in \mathbb{C}^{N_{\text{bs}} \times N_{\text{bs}}}$: BS 수신 고유벡터 행렬
+    \item $\mathbf{U}_{\text{ue}} \in \mathbb{C}^{N_{\text{ue}} \times N_{\text{ue}}}$: UE 송신 고유벡터 행렬
+    \item $\boldsymbol{\Omega} \in \mathbb{R}^{N_{\text{bs}} \times N_{\text{ue}}}$: 커플링 행렬 (정규화)
+\end{itemize}
+
+\subsection{전체 AE 채널 용량 (P1J)}
+P1J에서 Wen2011 알고리즘으로 계산된 AE 도메인 최대 용량:
+\begin{equation}
+C_{\text{AE}} = \max_{\mathbf{P}: \text{tr}(\mathbf{P}) \leq N_{\text{ue}}} \mathbb{E}\left[\log \det\left(\mathbf{I}_{N_{\text{bs}}} + \mathbf{H} \mathbf{P} \mathbf{H}^{\mathsf{H}}\right)\right]
+\end{equation}
+
+여기서 $\mathbf{P} \in \mathbb{C}^{N_{\text{ue}} \times N_{\text{ue}}}$는 AE 도메인 입력 공분산 행렬.
+
+\section{DFT 코드북 생성 (초기 1회)}
+
+\subsection{1차원 DFT 코드북}
+\begin{equation}
+[\mathbf{F}_{N,K}]_{i,j} = \frac{1}{\sqrt{N}} \exp\left(-\mathsf{j}\frac{2\pi ij}{NK}\right), \quad i = 0, \ldots, N-1, \quad j = 0, \ldots, NK-1
+\end{equation}
+
+\subsection{2차원 코드북 (Kronecker product)}
+\begin{align}
+\mathbf{F}_{\text{bs}} &= \mathbf{F}_{4,2} \otimes \mathbf{F}_{4,2} \in \mathbb{C}^{16 \times 64} \\
+\mathbf{F}_{\text{ue}} &= \mathbf{F}_{2,2} \otimes \mathbf{F}_{2,2} \in \mathbb{C}^{4 \times 16}
+\end{align}
+
+\newpage
+\section{빔포밍 행렬 및 빔 도메인 채널}
+
+\subsection{BS 빔포밍 행렬}
+BS 빔 인덱스 벡터 $\boldsymbol{k} = [k_1, k_2, \ldots, k_{L_{\text{bs}}}]^{\mathsf{T}}$에 대해 각 레이어별 빔 할당:
+\begin{equation}
+\mathbf{W}_{\text{bs}}(\boldsymbol{k}) = \text{blkdiag}\left(\mathbf{f}_{\text{bs}}[k_1], \mathbf{f}_{\text{bs}}[k_2], \ldots, \mathbf{f}_{\text{bs}}[k_{L_{\text{bs}}}]\right) \in \mathbb{C}^{N_{\text{bs}} \times L_{\text{bs}}}
+\end{equation}
+
+여기서 $\mathbf{f}_{\text{bs}}[k] \in \mathbb{C}^{N_{\text{bs}} \times 1}$은 코드북 $\mathbf{F}_{\text{bs}}$의 $k$번째 빔 벡터, $k \in \{0, \ldots, 63\}$.
+
+\subsection{UE 빔포밍 행렬}
+UE 빔 인덱스 벡터 $\boldsymbol{\ell} = [\ell_1, \ell_2, \ldots, \ell_{L_{\text{ue}}}]^{\mathsf{T}}$에 대해 각 레이어별 빔 할당:
+\begin{equation}
+\mathbf{W}_{\text{ue}}(\boldsymbol{\ell}) = \text{blkdiag}\left(\mathbf{f}_{\text{ue}}[\ell_1], \mathbf{f}_{\text{ue}}[\ell_2], \ldots, \mathbf{f}_{\text{ue}}[\ell_{L_{\text{ue}}}]\right) \in \mathbb{C}^{N_{\text{ue}} \times L_{\text{ue}}}
+\end{equation}
+
+여기서 $\mathbf{f}_{\text{ue}}[\ell] \in \mathbb{C}^{N_{\text{ue}} \times 1}$은 코드북 $\mathbf{F}_{\text{ue}}$의 $\ell$번째 빔 벡터, $\ell \in \{0, \ldots, 15\}$.
+
+\subsection{빔 도메인 채널}
+Naive 채널 $\mathbf{H} \in \mathbb{C}^{N_{\text{bs}} \times N_{\text{ue}}}$ (Section 2.1)에 빔포밍 적용:
+\begin{equation}
+\mathbf{H}_{\text{B}}(\boldsymbol{k}, \boldsymbol{\ell}) = \mathbf{W}_{\text{bs}}(\boldsymbol{k})^{\mathsf{H}} \mathbf{H} \mathbf{W}_{\text{ue}}(\boldsymbol{\ell}) \in \mathbb{C}^{L_{\text{bs}} \times L_{\text{ue}}}
+\end{equation}
+
+$\mathbf{H}$가 Weichselberger 분포를 따른다고 가정:
+\begin{equation}
+\mathbf{H} = \bar{\mathbf{H}} + \mathbf{U}_{\text{bs}} (\sqrt{\boldsymbol{\Omega}} \odot \mathbf{H}_{\text{iid}}) \mathbf{U}_{\text{ue}}^{\mathsf{H}}
+\end{equation}
+
+빔포밍 적용 후 $\mathbf{H}_{\text{B}}(\boldsymbol{k}, \boldsymbol{\ell})$도 Weichselberger 분포를 따르며, Section 5에서 빔 도메인 파라미터 $\bar{\mathbf{H}}_{\text{B}}$, $\mathbf{U}_{\text{bs,B}}$, $\mathbf{U}_{\text{ue,B}}$, $\boldsymbol{\Omega}_{\text{B}}$ 유도.
+
+\newpage
+\section{빔 도메인 Weichselberger 파라미터 변환}
+
+\subsection{평균 채널 변환}
+\begin{equation}
+\bar{\mathbf{H}}_{\text{B}} = \mathbf{W}_{\text{bs}}^{\mathsf{H}} \bar{\mathbf{H}} \mathbf{W}_{\text{ue}} \in \mathbb{C}^{L_{\text{bs}} \times L_{\text{ue}}}
+\end{equation}
+
+\subsection{BS 수신 공분산 변환}
+
+\begin{enumerate}
+\item 중간 행렬 계산:
+\begin{equation}
+\mathbf{T}_{\text{ue}} = \mathbf{U}_{\text{ue}}^{\mathsf{H}} \mathbf{W}_{\text{ue}} \in \mathbb{C}^{N_{\text{ue}} \times L_{\text{ue}}}
+\end{equation}
+
+\item Element-wise absolute square 및 행의 합:
+\begin{equation}
+\mathbf{v}_{\text{ue}} = \sum_{j=1}^{L_{\text{ue}}} |\mathbf{T}_{\text{ue}}|^2_{:,j} = |\mathbf{T}_{\text{ue}}|^2 \mathbf{1}_{L_{\text{ue}}} \in \mathbb{R}^{N_{\text{ue}}}
+\end{equation}
+
+\item 커플링과 곱:
+\begin{equation}
+\mathbf{d}_{\text{bs}} = \boldsymbol{\Omega} \mathbf{v}_{\text{ue}} \in \mathbb{R}^{N_{\text{bs}}}
+\end{equation}
+
+\item 빔 도메인 공분산 행렬 및 고유값 분해:
+\begin{align}
+\mathbf{R}_{\text{bs,B}} 
+&= \mathbf{W}_{\text{bs}}^{\mathsf{H}} \mathbf{U}_{\text{bs}} \text{diag}(\mathbf{d}_{\text{bs}}) \mathbf{U}_{\text{bs}}^{\mathsf{H}} \mathbf{W}_{\text{bs}}  \\
+&= \mathbf{U}_{\text{bs,B}} \mathbf{\Lambda}_{\text{bs,beam}} \mathbf{U}_{\text{bs,B}}^{\mathsf{H}} \in \mathbb{C}^{L_{\text{bs}} \times L_{\text{bs}}}
+\end{align}
+\end{enumerate}
+
+\subsection{UE 송신 공분산 변환}
+
+\begin{enumerate}
+\item 중간 행렬:
+\begin{equation}
+\mathbf{T}_{\text{bs}} = \mathbf{U}_{\text{bs}}^{\mathsf{H}} \mathbf{W}_{\text{bs}} \in \mathbb{C}^{N_{\text{bs}} \times L_{\text{bs}}}
+\end{equation}
+
+\item 행의 합:
+\begin{equation}
+\mathbf{v}_{\text{bs}} = |\mathbf{T}_{\text{bs}}|^2 \mathbf{1}_{L_{\text{bs}}} \in \mathbb{R}^{N_{\text{bs}}}
+\end{equation}
+
+\item 커플링 전치와 곱:
+\begin{equation}
+\mathbf{d}_{\text{ue}} = \boldsymbol{\Omega}^{\mathsf{T}} \mathbf{v}_{\text{bs}} \in \mathbb{R}^{N_{\text{ue}}}
+\end{equation}
+
+\item 빔 도메인 공분산 및 고유값 분해:
+\begin{align}
+\mathbf{R}_{\text{ue,B}} 
+&= \mathbf{W}_{\text{ue}}^{\mathsf{H}} \mathbf{U}_{\text{ue}} \text{diag}(\mathbf{d}_{\text{ue}}) \mathbf{U}_{\text{ue}}^{\mathsf{H}} \mathbf{W}_{\text{ue}}  \\
+&= \mathbf{U}_{\text{ue,B}} \mathbf{\Lambda}_{\text{ue,beam}} \mathbf{U}_{\text{ue,B}}^{\mathsf{H}} \in \mathbb{C}^{L_{\text{ue}} \times L_{\text{ue}}}
+\end{align}
+\end{enumerate}
+
+\subsection{커플링 행렬 변환}
+
+\begin{enumerate}
+\item 변환 행렬:
+\begin{align}
+\mathbf{V}_{\text{bs}} &= \mathbf{U}_{\text{bs}}^{\mathsf{H}} \mathbf{W}_{\text{bs}} \mathbf{U}_{\text{bs,B}} \in \mathbb{C}^{N_{\text{bs}} \times L_{\text{bs}}} \\
+\mathbf{V}_{\text{ue}} &= \mathbf{U}_{\text{ue}}^{\mathsf{H}} \mathbf{W}_{\text{ue}} \mathbf{U}_{\text{ue,B}} \in \mathbb{C}^{N_{\text{ue}} \times L_{\text{ue}}}
+\end{align}
+
+\item 커플링 행렬 변환:
+\begin{equation}
+\boldsymbol{\Omega}_{\text{B}} = |\mathbf{V}_{\text{bs}}|^2{}^{\mathsf{T}} \boldsymbol{\Omega} |\mathbf{V}_{\text{ue}}|^2 \in \mathbb{R}^{L_{\text{bs}} \times L_{\text{ue}}}
+\end{equation}
+여기서 $|\mathbf{V}|^2$는 element-wise absolute square.
+\end{enumerate}
+
+\newpage
+\section{빔 도메인 채널 용량 계산}
+
+Section 4.3의 빔 도메인 채널 $\mathbf{H}_{\text{B}}(\boldsymbol{k}, \boldsymbol{\ell})$와 Section 5의 변환된 Weichselberger 파라미터를 사용하여 용량 계산.
+
+\subsection{점근적 용량 계산}
+
+\subsubsection{주어진 입력 공분산에 대한 용량}
+빔 인덱스 벡터 $(\boldsymbol{k}, \boldsymbol{\ell})$와 입력 공분산 행렬 $\mathbf{P}_{\text{B}}$에 대한 점근적 용량:
+\begin{equation}
+C_{\text{B}}(\boldsymbol{k}, \boldsymbol{\ell}, \mathbf{P}_{\text{B}}) = \mathbb{E}\left[\log \det\left(\mathbf{I}_{L_{\text{bs}}} + \mathbf{H}_{\text{B}}(\boldsymbol{k}, \boldsymbol{\ell}) \mathbf{P}_{\text{B}} \mathbf{H}_{\text{B}}(\boldsymbol{k}, \boldsymbol{\ell})^{\mathsf{H}}\right)\right]
+\end{equation}
+여기서 $\mathbf{P}_{\text{B}} \in \mathbb{C}^{L_{\text{ue}} \times L_{\text{ue}}}$, $\text{tr}(\mathbf{P}_{\text{B}}) \leq L_{\text{ue}}$.
+
+\subsubsection{최적 입력 공분산에 대한 용량}
+입력 공분산을 최적화한 점근적 용량:
+\begin{equation}
+C_{\text{B}}(\boldsymbol{k}, \boldsymbol{\ell}) = \max_{\mathbf{P}_{\text{B}}: \text{tr}(\mathbf{P}_{\text{B}}) \leq L_{\text{ue}}} C_{\text{B}}(\boldsymbol{k}, \boldsymbol{\ell}, \mathbf{P}_{\text{B}})
+\end{equation}
+최적 입력 공분산 $\mathbf{P}_{\text{B}}^{\star}$는 Wen2011 알고리즘으로 계산.
+
+빔 도메인 채널은 Weichselberger 모델로부터 생성:
+\begin{equation}
+\mathbf{H}_{\text{B}}(\boldsymbol{k}, \boldsymbol{\ell}) = \bar{\mathbf{H}}_{\text{B}} + \mathbf{U}_{\text{bs,B}} \left(\sqrt{\boldsymbol{\Omega}_{\text{B}}} \odot \mathbf{H}_{\text{iid}}\right) \mathbf{U}_{\text{ue,B}}^{\mathsf{H}}
+\end{equation}
+
+입력은 빔 도메인 파라미터 $\bar{\mathbf{H}}_{\text{B}}, \mathbf{U}_{\text{bs,B}}, \mathbf{U}_{\text{ue,B}}, \boldsymbol{\Omega}_{\text{B}}$ (Section 5)이며, Wen2011 알고리즘으로 $\mathbf{P}_{\text{B}}$ 최적화 및 점근적 용량 계산 (채널 샘플 생성 불필요).
+
+\newpage
+\section{최적 빔 세트 탐색 (2단계 Greedy 알고리즘)}
+
+\subsection{Stage 1: UE 빔 선택}
+
+\paragraph{단일 빔 반복 할당.}
+BS는 전체 코드북 사용 ($\boldsymbol{k}_{\text{all}} = [0, 1, \ldots, N_{\text{cb,bs}}-1]^{\mathsf{T}}$), UE는 각 코드북 인덱스 $\ell \in \{0, 1, \ldots, N_{\text{cb,ue}}-1\}$를 $L_{\text{ue}}$개 레이어에 반복:
+\begin{equation}
+\boldsymbol{\ell} = \ell \mathbf{1}_{L_{\text{ue}}}
+\end{equation}
+$N_{\text{cb,ue}}$가지 단일 빔에 대해 점근적 용량 $C_{\text{B}}(\boldsymbol{k}_{\text{all}}, \ell \mathbf{1}_{L_{\text{ue}}}, \mathbf{I}_{L_{\text{ue}}})$ 계산 ($\ell = 0, 1, \ldots, N_{\text{cb,ue}}-1$), 전력 할당은 scaled identity $\mathbf{P}_{\text{B}} = \mathbf{I}_{L_{\text{ue}}}$ 사용 (빠른 코드북 간 성능 비교 목적).
+
+\paragraph{Thresholding.}
+성능 기준치를 사용하여 우수한 코드북 선별:
+\begin{equation}
+\mathcal{S}_{\text{ue}} = \left\{ \ell \in \{0, \ldots, N_{\text{cb,ue}}-1\} : C_{\text{B}}(\boldsymbol{k}_{\text{all}}, \ell \mathbf{1}_{L_{\text{ue}}}, \mathbf{I}_{L_{\text{ue}}}) \geq \alpha_{\text{ue}} \cdot C_{\text{AE}} \right\}, \quad 0 < \alpha_{\text{ue}} < 1
+\end{equation}
+여기서 $C_{\text{AE}}$는 AE 도메인 기준 용량 (Section 2.2), $\alpha_{\text{ue}}$는 scaled identity 전력 할당 기준으로 경험적으로 결정 (예: 0.1, 0.05).
+
+\paragraph{조합 탐색.}
+기준치 이상 코드북 조합 ($|\mathcal{S}_{\text{ue}}| \geq L_{\text{ue}}$로 가정):
+\begin{equation}
+\boldsymbol{\ell}^{\star} = \arg\max_{\boldsymbol{\ell} \in \text{comb}(\mathcal{S}_{\text{ue}}, L_{\text{ue}})} C_{\text{B}}(\boldsymbol{k}_{\text{all}}, \boldsymbol{\ell}, \mathbf{I}_{L_{\text{ue}}})
+\end{equation}
+여기서 $\text{comb}(\mathcal{S}_{\text{ue}}, L_{\text{ue}})$는 $\mathcal{S}_{\text{ue}}$에서 $L_{\text{ue}}$개를 선택한 모든 조합 ($\binom{|\mathcal{S}_{\text{ue}}|}{L_{\text{ue}}}$개), 빔 순서는 무관. 전력 할당은 scaled identity $\mathbf{P}_{\text{B}} = \mathbf{I}_{L_{\text{ue}}}$ 사용.
+
+\paragraph{기준 용량 결정.}
+최적 조합 $\boldsymbol{\ell}^{\star}$에 대해 입력 공분산 $\mathbf{P}_{\text{B}}^{1,\star}$을 Wen2011 알고리즘으로 최적화:
+\begin{equation}
+\mathbf{P}_{\text{B}}^{1,\star} = \arg\max_{\mathbf{P}_{\text{B}}: \text{tr}(\mathbf{P}_{\text{B}}) \leq L_{\text{ue}}} C_{\text{B}}(\boldsymbol{k}_{\text{all}}, \boldsymbol{\ell}^{\star}, \mathbf{P}_{\text{B}})
+\end{equation}
+\begin{equation}
+C_{\text{ref}} = C_{\text{B}}(\boldsymbol{k}_{\text{all}}, \boldsymbol{\ell}^{\star}, \mathbf{P}_{\text{B}}^{1,\star})
+\end{equation}
+이는 UE $L_{\text{ue}}$레이어 제한 하에서 최대 용량 (BS는 전체 코드북 사용).
+
+\subsection{Stage 2: BS 빔 선택 (Greedy Addition)}
+
+Stage 1에서 결정된 UE 빔 인덱스 벡터 $\boldsymbol{\ell}^{\star}$와 입력 공분산 $\mathbf{P}_{\text{B}}^{1,\star}$을 고정. BS 빔 인덱스 벡터 $\boldsymbol{k} = [\,]$ (빈 벡터), $L_{\text{bs}} = 0$에서 시작.
+
+\paragraph{반복 과정.}
+$L_{\text{bs}} = 0 \rightarrow N_{\text{cb,bs}}$에 대해:
+\begin{enumerate}
+    \item 현재 $\boldsymbol{k}$에 대해 $C_{\text{B}}(\boldsymbol{k}, \boldsymbol{\ell}^{\star}, \mathbf{P}_{\text{B}}^{1,\star})$ 계산
+    \item 각 후보 빔 $k \in \{0, \ldots, N_{\text{cb,bs}}-1\} \setminus \boldsymbol{k}$에 대해 용량 개선 계산:
+    \begin{equation}
+    \Delta C_k = C_{\text{B}}([\boldsymbol{k}; k], \boldsymbol{\ell}^{\star}, \mathbf{P}_{\text{B}}^{1,\star}) - C_{\text{B}}(\boldsymbol{k}, \boldsymbol{\ell}^{\star}, \mathbf{P}_{\text{B}}^{1,\star})
+    \end{equation}
+    \item 용량 개선이 최대인 빔 추가:
+    \begin{equation}
+    k_{\text{add}} = \arg\max_{k \in \{0,\ldots,N_{\text{cb,bs}}-1\} \setminus \boldsymbol{k}} \Delta C_k
+    \end{equation}
+    \item 업데이트: $\boldsymbol{k} \leftarrow [\boldsymbol{k}; k_{\text{add}}]$, $L_{\text{bs}} \leftarrow L_{\text{bs}} + 1$
+    \item 히스토리 저장: $(L_{\text{bs}}, \boldsymbol{k}, C_{\text{B}}, \text{개선비율})$
+\end{enumerate}
+
+\paragraph{종료 조건.}
+상대 용량 개선 비율이 기준치 미만일 때 종료:
+\begin{equation}
+\frac{\Delta C_{k_{\text{add}}}}{C_{\text{B}}(\boldsymbol{k}, \boldsymbol{\ell}^{\star}, \mathbf{P}_{\text{B}}^{1,\star})} < \alpha_{\text{bs}}, \quad 0 < \alpha_{\text{bs}} < 1
+\end{equation}
+여기서 $\alpha_{\text{bs}}$는 경험적으로 결정 (예: 0.05, 0.1). UE 레이어 $L_{\text{ue}}$개인 경우 BS 빔 $L_{\text{ue}}$개까지는 개선 비율이 높을 것으로 예상.
+
+\paragraph{출력.}
+BS 빔 인덱스 벡터 (성능 내림차순):
+\begin{equation}
+\boldsymbol{k}^{\star} = [k_{\text{add}}^{(1)}, k_{\text{add}}^{(2)}, \ldots, k_{\text{add}}^{(L_{\text{bs}})}]^{\mathsf{T}}
+\end{equation}
+여기서 $k_{\text{add}}^{(i)}$는 $i$번째 추가된 빔 인덱스.
+
+\subsection{저장 변수 및 히스토리}
+
+\subsubsection{Stage 1 최적화 결과}
+\begin{itemize}
+    \item $\boldsymbol{\ell}^{\star} \in \mathbb{Z}^{L_{\text{ue}}}$: 최적 UE 빔 인덱스 벡터
+    \item $\mathbf{P}_{\text{B}}^{1,\star} \in \mathbb{C}^{L_{\text{ue}} \times L_{\text{ue}}}$: 최적 입력 공분산 행렬
+    \item $C_{\text{ref}} \in \mathbb{R}$: 기준 용량 (최대 달성 가능 용량)
+    \item $\mathcal{S}_{\text{ue}} \subset \{0, \ldots, N_{\text{cb,ue}}-1\}$: 필터링된 UE 코드북 인덱스 세트
+    \item $|\mathcal{S}_{\text{ue}}| \in \mathbb{Z}$: 필터링 후 남은 코드북 개수
+\end{itemize}
+
+\subsubsection{Stage 2 최적화 결과}
+\begin{itemize}
+    \item $\boldsymbol{k}^{\star} \in \mathbb{Z}^{L_{\text{bs}}}$: 최적 BS 빔 인덱스 벡터 (성능 내림차순)
+    \item $L_{\text{bs}} \in \mathbb{Z}$: 최종 선택된 BS 레이어 개수
+    \item $C_{\text{final}} = C_{\text{B}}(\boldsymbol{k}^{\star}, \boldsymbol{\ell}^{\star}, \mathbf{P}_{\text{B}}^{1,\star})$: 최종 달성 용량
+    \item $\mathcal{L}_{\text{final}} = C_{\text{ref}} - C_{\text{final}}$: 최종 용량 손실
+\end{itemize}
+
+\subsubsection{Stage 2 반복 히스토리}
+각 반복 $i = 1, 2, \ldots, L_{\text{bs}}$에 대해 벡터 형태로 저장:
+\begin{itemize}
+    \item $\mathbf{C}_{\text{hist}} \in \mathbb{R}^{L_{\text{bs}}}$: 각 반복 후 용량, $[\mathbf{C}_{\text{hist}}]_i = C_{\text{B}}(\boldsymbol{k}^{\star}_{1:i}, \boldsymbol{\ell}^{\star}, \mathbf{P}_{\text{B}}^{1,\star})$
+    \item $\Delta \mathbf{C}_{\text{hist}} \in \mathbb{R}^{L_{\text{bs}}}$: 각 반복의 용량 개선, $[\Delta \mathbf{C}_{\text{hist}}]_i = [\mathbf{C}_{\text{hist}}]_i - [\mathbf{C}_{\text{hist}}]_{i-1}$ ($[\mathbf{C}_{\text{hist}}]_0 = 0$)
+    \item $\boldsymbol{\rho}_{\text{hist}} \in \mathbb{R}^{L_{\text{bs}}}$: 각 반복의 상대 개선 비율, $[\boldsymbol{\rho}_{\text{hist}}]_i = [\Delta \mathbf{C}_{\text{hist}}]_i / [\mathbf{C}_{\text{hist}}]_{i-1}$
+\end{itemize}
+
+여기서 $\boldsymbol{k}^{\star}_{1:i} = [k_{\text{add}}^{(1)}, \ldots, k_{\text{add}}^{(i)}]^{\mathsf{T}}$는 $\boldsymbol{k}^{\star}$의 첫 $i$개 원소 (추가 순서 반영).
+
+\subsubsection{메타 정보}
+\begin{itemize}
+    \item $\alpha_{\text{ue}}, \alpha_{\text{bs}} \in \mathbb{R}$: 사용된 임계값
+    \item $N_{\text{iter,1}} = N_{\text{cb,ue}} + \binom{|\mathcal{S}_{\text{ue}}|}{L_{\text{ue}}}$: Stage 1 총 반복 횟수
+    \item $N_{\text{iter,2}} = \sum_{i=1}^{L_{\text{bs}}} (N_{\text{cb,bs}} - i + 1)$: Stage 2 총 반복 횟수
+    \item 계산 시간 (선택적): Stage별 소요 시간
+\end{itemize}
+
+
+\newpage
+\section{구현 체크리스트}
+
+\subsection{핵심 모듈}
+\begin{enumerate}
+    \item 데이터 로딩: P1I/P1J 결과 ($\mathbf{U}_{\text{bs}}, \mathbf{U}_{\text{ue}}, \boldsymbol{\Omega}, \bar{\mathbf{H}}, C_{\text{AE}}$)
+    \item DFT 코드북: Section 3 ($\mathbf{F}_{\text{bs}}, \mathbf{F}_{\text{ue}}$)
+    \item 빔 도메인 변환: Section 5 (핵심 알고리즘)
+    \item 용량 계산: Section 6 (Wen2011 알고리즘으로 $\mathbf{P}_{\text{B}}$ 최적화)
+    \item Stage 1 (UE 빔 탐색): Section 7.1
+    \begin{itemize}
+        \item 단일 빔 반복 할당 ($N_{\text{cb,ue}}$회)
+        \item Thresholding (경험적 기준치 설정)
+        \item 조합 탐색 ($\binom{|\mathcal{S}_{\text{ue}}|}{L_{\text{ue}}}$회)
+    \end{itemize}
+    \item Stage 2 (BS 빔 탐색): Section 7.2
+    \begin{itemize}
+        \item Greedy Addition (최대 $N_{\text{cb,bs}}$회)
+        \item 종료 조건: 성능 개선 비율 < $\alpha_{\text{bs}}$
+    \end{itemize}
+\end{enumerate}
+
+\subsection{계산량}
+\begin{itemize}
+    \item Stage 1-1 (단일 빔 평가): $N_{\text{cb,ue}}$회
+    \item Stage 1-3 (조합 탐색): $\binom{|\mathcal{S}_{\text{ue}}|}{L_{\text{ue}}}$회 (예: $|\mathcal{S}_{\text{ue}}| = 8$, $L_{\text{ue}} = 4$이면 70회)
+    \item Stage 2 (BS Greedy Addition): $\sum_{i=1}^{L_{\text{bs}}} (N_{\text{cb,bs}} - i + 1)$회 (예: $N_{\text{cb,bs}} = 64$, $L_{\text{bs}} = 8$이면 456회)
+    \item 총 (예시): $N_{\text{cb,ue}} + 70 + 456 = 542$회 vs 전수탐색 $\binom{N_{\text{cb,ue}}}{L_{\text{ue}}} \times \binom{N_{\text{cb,bs}}}{L_{\text{bs}}} \approx 10^{10}$회
+\end{itemize}
+
+실제 계산량은 $\alpha_{\text{ue}}$, $\alpha_{\text{bs}}$에 따라 달라짐.
+
+\subsection{최적화 전략}
+\begin{itemize}
+    \item 병렬화: Stage 1-1의 $N_{\text{cb,ue}}$회 평가, Stage 2의 후보 빔 평가를 병렬 처리
+    \item 벡터화: TensorFlow 활용
+    \item GPU: 용량 계산 가속
+    \item 경험적 기준치: 초기 실험 결과 기반으로 $\alpha_{\text{ue}}$ (예: 0.1, 0.15), $\alpha_{\text{bs}}$ (예: 0.05, 0.1) 설정
+\end{itemize}
+
+\newpage
+\appendix
+\section{빔 도메인 Weichselberger 파라미터 유도 상세}
+
+이 부록은 Section 5의 빔 도메인 파라미터 변환 수식의 상세 유도 과정을 제공한다.
+
+\subsection{Weichselberger 채널 모델 분해}
+
+Uplink Weichselberger Rician 채널:
+\begin{equation}
+\mathbf{H} = \bar{\mathbf{H}} + \tilde{\mathbf{H}}
+\end{equation}
+
+랜덤 부분 $\tilde{\mathbf{H}}$는 다음과 같이 분해:
+\begin{equation}
+\tilde{\mathbf{H}} = \mathbf{U}_{\text{bs}} (\sqrt{\boldsymbol{\Omega}} \odot \mathbf{H}_{\text{iid}}) \mathbf{U}_{\text{ue}}^{\mathsf{H}}
+\end{equation}
+
+여기서:
+\begin{itemize}
+    \item $\mathbf{H}_{\text{iid}} \in \mathbb{C}^{N_{\text{bs}} \times N_{\text{ue}}}$: i.i.d. $\mathcal{CN}(0,1)$ 원소
+    \item $\boldsymbol{\Omega} \in \mathbb{R}^{N_{\text{bs}} \times N_{\text{ue}}}$: AE 도메인 커플링 행렬
+    \item $\mathbf{U}_{\text{bs}} \in \mathbb{C}^{N_{\text{bs}} \times N_{\text{bs}}}$: BS 수신 공분산 고유벡터
+    \item $\mathbf{U}_{\text{ue}} \in \mathbb{C}^{N_{\text{ue}} \times N_{\text{ue}}}$: UE 송신 공분산 고유벡터
+\end{itemize}
+
+\subsection{BS 수신 공분산 유도}
+
+\subsubsection{빔 도메인 랜덤 채널}
+빔포밍 적용 후:
+\begin{equation}
+\tilde{\mathbf{H}}_{\text{beam}} = \mathbf{W}_{\text{bs}}^{\mathsf{H}} \tilde{\mathbf{H}} \mathbf{W}_{\text{ue}} = \mathbf{W}_{\text{bs}}^{\mathsf{H}} \mathbf{U}_{\text{bs}} (\sqrt{\boldsymbol{\Omega}} \odot \mathbf{H}_{\text{iid}}) \mathbf{U}_{\text{ue}}^{\mathsf{H}} \mathbf{W}_{\text{ue}}
+\end{equation}
+
+\subsubsection{공분산 행렬}
+\begin{align}
+\mathbf{R}_{\text{bs,B}} &= \mathbb{E}[\tilde{\mathbf{H}}_{\text{beam}} \tilde{\mathbf{H}}_{\text{beam}}^{\mathsf{H}}] \\
+&= \mathbf{W}_{\text{bs}}^{\mathsf{H}} \mathbf{U}_{\text{bs}} \mathbb{E}\left[ (\sqrt{\boldsymbol{\Omega}} \odot \mathbf{H}_{\text{iid}}) \mathbf{U}_{\text{ue}}^{\mathsf{H}} \mathbf{W}_{\text{ue}} \mathbf{W}_{\text{ue}}^{\mathsf{H}} \mathbf{U}_{\text{ue}} (\sqrt{\boldsymbol{\Omega}} \odot \mathbf{H}_{\text{iid}})^{\mathsf{H}} \right] \mathbf{U}_{\text{bs}}^{\mathsf{H}} \mathbf{W}_{\text{bs}}
+\end{align}
+
+\subsubsection{핵심 계산}
+$\mathbf{C} = \mathbf{U}_{\text{ue}}^{\mathsf{H}} \mathbf{W}_{\text{ue}} \mathbf{W}_{\text{ue}}^{\mathsf{H}} \mathbf{U}_{\text{ue}} \in \mathbb{C}^{N_{\text{ue}} \times N_{\text{ue}}}$로 정의하면:
+\begin{equation}
+\mathbf{X} = \mathbb{E}\left[ (\sqrt{\boldsymbol{\Omega}} \odot \mathbf{H}_{\text{iid}}) \mathbf{C} (\sqrt{\boldsymbol{\Omega}} \odot \mathbf{H}_{\text{iid}})^{\mathsf{H}} \right]
+\end{equation}
+
+$\mathbf{X}$의 $(i,k)$ 원소:
+\begin{align}
+[\mathbf{X}]_{i,k} &= \mathbb{E}\left[ \sum_{j=1}^{N_{\text{ue}}} \sum_{\ell=1}^{N_{\text{ue}}} \sqrt{\Omega_{ij}} H_{ij} C_{j\ell} \sqrt{\Omega_{k\ell}} H_{k\ell}^* \right] \\
+&= \sum_{j,\ell} \sqrt{\Omega_{ij} \Omega_{k\ell}} \, C_{j\ell} \, \underbrace{\mathbb{E}[H_{ij} H_{k\ell}^*]}_{\delta_{ik}\delta_{j\ell}}
+\end{align}
+
+$\mathbf{H}_{\text{iid}}$의 원소가 i.i.d. $\mathcal{CN}(0,1)$이므로:
+\begin{equation}
+\mathbb{E}[H_{ij} H_{k\ell}^*] = \begin{cases} 1 & \text{if } i=k \text{ and } j=\ell \\ 0 & \text{otherwise} \end{cases} = \delta_{ik}\delta_{j\ell}
+\end{equation}
+
+따라서 $\mathbf{X}$는 대각 행렬:
+\begin{equation}
+[\mathbf{X}]_{i,i} = \sum_{j=1}^{N_{\text{ue}}} \Omega_{ij} C_{jj}
+\end{equation}
+
+$C_{jj}$는 $\mathbf{C}$의 $j$번째 대각 원소:
+\begin{equation}
+C_{jj} = \sum_{m=1}^{L_{\text{ue}}} |[\mathbf{U}_{\text{ue}}^{\mathsf{H}} \mathbf{W}_{\text{ue}}]_{jm}|^2
+\end{equation}
+
+이는 $|\mathbf{T}_{\text{ue}}|^2$ (여기서 $\mathbf{T}_{\text{ue}} = \mathbf{U}_{\text{ue}}^{\mathsf{H}} \mathbf{W}_{\text{ue}}$)의 $j$번째 행의 합이다.
+
+벡터 표기:
+\begin{equation}
+\mathbf{v}_{\text{ue}} = |\mathbf{T}_{\text{ue}}|^2 \mathbf{1}_{L_{\text{ue}}} \in \mathbb{R}^{N_{\text{ue}}}
+\end{equation}
+
+대각 벡터:
+\begin{equation}
+\mathbf{d}_{\text{bs}} = \boldsymbol{\Omega} \mathbf{v}_{\text{ue}} \in \mathbb{R}^{N_{\text{bs}}}
+\end{equation}
+
+\subsubsection{최종 수식}
+\begin{equation}
+\mathbf{R}_{\text{bs,B}} = \mathbf{W}_{\text{bs}}^{\mathsf{H}} \mathbf{U}_{\text{bs}} \text{diag}(\mathbf{d}_{\text{bs}}) \mathbf{U}_{\text{bs}}^{\mathsf{H}} \mathbf{W}_{\text{bs}}
+\end{equation}
+
+\subsection{UE 송신 공분산 유도}
+
+동일한 논리로, 채널 전치를 고려:
+\begin{equation}
+\mathbf{R}_{\text{ue,B}} = \mathbb{E}[\tilde{\mathbf{H}}_{\text{beam}}^{\mathsf{H}} \tilde{\mathbf{H}}_{\text{beam}}]
+\end{equation}
+
+대칭 유도 과정:
+\begin{enumerate}
+    \item $\mathbf{T}_{\text{bs}} = \mathbf{U}_{\text{bs}}^{\mathsf{H}} \mathbf{W}_{\text{bs}}$
+    \item $\mathbf{v}_{\text{bs}} = |\mathbf{T}_{\text{bs}}|^2 \mathbf{1}_{L_{\text{bs}}}$
+    \item $\mathbf{d}_{\text{ue}} = \boldsymbol{\Omega}^{\mathsf{T}} \mathbf{v}_{\text{bs}}$
+    \item $\mathbf{R}_{\text{ue,B}} = \mathbf{W}_{\text{ue}}^{\mathsf{H}} \mathbf{U}_{\text{ue}} \text{diag}(\mathbf{d}_{\text{ue}}) \mathbf{U}_{\text{ue}}^{\mathsf{H}} \mathbf{W}_{\text{ue}}$
+\end{enumerate}
+
+\subsection{커플링 행렬 유도}
+
+\subsubsection{AE 도메인 커플링 행렬 정의}
+Weichselberger 모델에서 AE 도메인 커플링 행렬은:
+\begin{equation}
+[\boldsymbol{\Omega}]_{i,j} = \mathbb{E}[|\mathbf{u}_{\text{bs},i}^{\mathsf{H}} \tilde{\mathbf{H}} \mathbf{u}_{\text{ue},j}|^2]
+\end{equation}
+
+여기서 $\mathbf{u}_{\text{bs},i}$는 $\mathbf{U}_{\text{bs}}$의 $i$번째 열 (BS 공분산의 고유벡터), $\mathbf{u}_{\text{ue},j}$는 $\mathbf{U}_{\text{ue}}$의 $j$번째 열 (UE 공분산의 고유벡터).
+
+\subsubsection{빔 도메인 커플링 행렬 정의}
+빔 도메인에서 커플링 행렬은 동일한 방식으로 정의:
+\begin{align}
+[\boldsymbol{\Omega}_{\text{B}}]_{p,q} &= \mathbb{E}\left[|\mathbf{u}_{\text{bs,beam},p}^{\mathsf{H}} \tilde{\mathbf{H}}_{\text{beam}} \mathbf{u}_{\text{ue,beam},q}|^2\right]
+\end{align}
+
+빔 도메인 랜덤 채널을 대입:
+\begin{align}
+[\boldsymbol{\Omega}_{\text{B}}]_{p,q} &= \mathbb{E}\left[\left|\mathbf{u}_{\text{bs,beam},p}^{\mathsf{H}} \mathbf{W}_{\text{bs}}^{\mathsf{H}} \mathbf{U}_{\text{bs}} \left(\sqrt{\boldsymbol{\Omega}} \odot \mathbf{H}_{\text{iid}}\right) \mathbf{U}_{\text{ue}}^{\mathsf{H}} \mathbf{W}_{\text{ue}} \mathbf{u}_{\text{ue,beam},q}\right|^2\right]
+\end{align}
+
+\subsubsection{변환 행렬 정의}
+변환 행렬을 정의:
+\begin{align}
+\mathbf{V}_{\text{bs}} &= \mathbf{U}_{\text{bs}}^{\mathsf{H}} \mathbf{W}_{\text{bs}} \mathbf{U}_{\text{bs,B}} \in \mathbb{C}^{N_{\text{bs}} \times L_{\text{bs}}} \\
+\mathbf{V}_{\text{ue}} &= \mathbf{U}_{\text{ue}}^{\mathsf{H}} \mathbf{W}_{\text{ue}} \mathbf{U}_{\text{ue,B}} \in \mathbb{C}^{N_{\text{ue}} \times L_{\text{ue}}}
+\end{align}
+
+위 식을 전개:
+\begin{equation}
+[\boldsymbol{\Omega}_{\text{B}}]_{p,q} = \mathbb{E}\left[\left| \sum_{i=1}^{N_{\text{bs}}} \sum_{j=1}^{N_{\text{ue}}} [\mathbf{V}_{\text{bs}}]_{i,p} \sqrt{\Omega_{ij}} H_{\text{iid}}[i,j] [\mathbf{V}_{\text{ue}}]_{j,q} \right|^2\right]
+\end{equation}
+
+\subsubsection{제곱의 절댓값 전개}
+$|z|^2 = z z^*$를 이용:
+\begin{align}
+[\boldsymbol{\Omega}_{\text{B}}]_{p,q} &= \sum_{i,k=1}^{N_{\text{bs}}} \sum_{j,\ell=1}^{N_{\text{ue}}} [\mathbf{V}_{\text{bs}}]_{i,p} [\mathbf{V}_{\text{bs}}]_{k,p}^* \sqrt{\Omega_{ij} \Omega_{k\ell}} \notag \\
+&\quad \times [\mathbf{V}_{\text{ue}}]_{j,q} [\mathbf{V}_{\text{ue}}]_{\ell,q}^* \mathbb{E}[H_{\text{iid}}[i,j] H_{\text{iid}}^*[k,\ell]]
+\end{align}
+
+\subsubsection{i.i.d. 성질 적용}
+$\mathbf{H}_{\text{iid}}$의 원소가 i.i.d. $\mathcal{CN}(0,1)$이므로:
+\begin{equation}
+\mathbb{E}[H_{\text{iid}}[i,j] H_{\text{iid}}^*[k,\ell]] = \delta_{ik}\delta_{j\ell}
+\end{equation}
+
+따라서 $i=k$, $j=\ell$인 항만 남음:
+\begin{align}
+[\boldsymbol{\Omega}_{\text{B}}]_{p,q} &= \sum_{i=1}^{N_{\text{bs}}} \sum_{j=1}^{N_{\text{ue}}} |[\mathbf{V}_{\text{bs}}]_{i,p}|^2 \Omega_{ij} |[\mathbf{V}_{\text{ue}}]_{j,q}|^2
+\end{align}
+
+\subsubsection{최종 행렬 형태}
+행렬 표기법으로 표현 ($|\mathbf{V}|^2$는 element-wise absolute square):
+\begin{equation}
+\boldsymbol{\Omega}_{\text{B}} = (|\mathbf{V}_{\text{bs}}|^2)^{\mathsf{T}} \boldsymbol{\Omega} (|\mathbf{V}_{\text{ue}}|^2)
+\end{equation}
+
+이는 빔포밍 후 고유벡터 기저 변환에 따른 커플링 행렬의 변화를 나타낸다.
+
+\end{document}

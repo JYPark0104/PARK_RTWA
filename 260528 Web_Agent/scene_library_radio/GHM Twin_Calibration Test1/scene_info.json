@@ -1,0 +1,41 @@
+{
+  "source_type": "xml_bundle",
+  "mesh_files": [
+    "meshes/Integrated_GHMTwin_v1-itu_concrete.ply",
+    "meshes/Integrated_GHMTwin_v1-itu_wood.ply",
+    "meshes/Integrated_GHMTwin_v1-itu_glass.ply",
+    "meshes/Integrated_GHMTwin_v1-itu_wet_ground.ply",
+    "meshes/Integrated_GHMTwin_v1-itu_marble.ply"
+  ],
+  "materials": [
+    "itu_concrete",
+    "itu_glass",
+    "itu_marble",
+    "itu_wet_ground",
+    "itu_wood"
+  ],
+  "aabb_min": [
+    -120.90453338623047,
+    -205.64938354492188,
+    -2.6405982971191406
+  ],
+  "aabb_max": [
+    158.16000366210938,
+    121.43302917480469,
+    49.219844818115234
+  ],
+  "center": [
+    18.627735137939453,
+    -42.108177185058594,
+    23.289623260498047
+  ],
+  "size": [
+    279.06453704833984,
+    327.08241271972656,
+    51.860443115234375
+  ],
+  "n_vertices": 771196,
+  "n_faces": 1439373,
+  "units": "meters",
+  "material_assigned": true
+}

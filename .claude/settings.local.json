@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cat > *)",
+      "Bash(python3 /tmp/inspect_npz.py '251004_Ch_Separ_\\(CorrRician\\)/P1A_RT_Results/Area1_7.5GHz_Rays_ALL_RXs.npz' '251004_Ch_Separ_\\(CorrRician\\)/P1B_Valid_Results/Area1_7.5GHz_Rays_Valid_RXs.npz' '251009_CCM_Collection \\(8 GB\\)/P1F_Marginal_CCM_Results/Area1_7.5GHz_RX1007_Marginal_CCM.npz')",
+      "Bash(python3)"
+    ]
+  }
+}

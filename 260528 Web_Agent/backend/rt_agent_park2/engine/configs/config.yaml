@@ -1,0 +1,150 @@
+# ============================================================
+# Ray Tracing Agent — 통합 설정 파일
+# 여기만 수정하면 전체 파이프라인에 반영됩니다.
+# ============================================================
+
+# ── RT 모드 ──────────────────────────────────────────────────
+# "multi_rx"  : 격자에 RX를 뿌려서 전체 Ray Tracing (기본)
+# "single_rx" : target_rx 위치 1개에 대해서만 집중 Ray Tracing
+# "batch_rx"  : RX를 소규모 배치로 나눠서 반복 RT (균일한 Ray 분포)
+rt_mode: "batch_rx"
+
+# batch_rx 모드 전용: 배치당 RX 개수
+batch_size: 50
+
+# single_rx 모드 전용: RX 위치 직접 지정 (미지정 시 target_rx_index 사용)
+single_rx_position:
+  x: -80.0
+  y: 50.0
+  z: 1.5    # 지면 높이 (rx.height와 동일하게)
+
+# ── 맵 및 파일/output 폴더 설정 ─────────────────────────────────
+# [중요] 파일 이름은 여기 FILENAME 한 곳만 바꾸면 됩니다.
+#        아래 map/output 의 "{FILENAME}" 자리에 자동으로 치환됩니다.
+FILENAME: "260531_GHM Twin_v0.1"
+
+map:
+  xml:   "input/{FILENAME}.xml"
+  ply:   "input/{FILENAME}.ply"
+  title: "{FILENAME}"
+
+output:
+  dir:  "output_{FILENAME}_MIMO"
+  visualize_ray_tracing: false   # scene.render() 렌더링 (시간 소요 큼)
+
+# ── TX 설정 (Multi-TX 지원) ──────────────────────────────────
+# 여러 대의 TX를 [x, y, z] 형태로 나열합니다. (TX1, TX2, ... TXN)
+# 각 TX마다 전체 RX 격자에 대해 Ray Tracing을 수행하여
+#   data.shape = [index_TX, index_RX, {통신 데이터}] 형태로 결과를 저장합니다.
+# TX가 1대만 필요하면 항목을 1개만 적으면 됩니다.
+# GHM Twin2_v0.1 — 이광훈 선배님 기준 배치 (TX1~TX8)
+# config 인덱스는 0-based 이므로 TX1→index 0, ... TX8→index 7 로 매핑됩니다.
+tx_positions:
+# for 260531_GHM Twin_v0.1
+  - [-41.16, -70.50, 112.00]    # TX0
+  - [101.47, 131.90,  71.00]    # TX1
+  - [227.48, -60.59, 47.00]     # TX2
+
+# # for 260604_GHMTwin2_v0.1
+#   - [-251.185,   75.0899, 17.8045]  # TX1 → index 0
+#   - [-259.94,  -201.262,  32.0]     # TX2 → index 1
+#   - [ -26.8706, 128.841,  54.0]     # TX3 → index 2
+#   - [ -39.0373, -49.0147, 112.0]    # TX4 → index 3
+#   - [ 154.873,  129.613,  21.0]     # TX5 → index 4
+#   - [  80.76,  -251.153,  162.0]    # TX6 → index 5
+#   - [ 236.027,  213.373,  19.0]     # TX7 → index 6
+#   - [ 252.048,  -63.7602, 66.0]     # TX8 → index 7
+# ── RX 격자 설정 ─────────────────────────────────────────────
+rx:
+  grid_n:       100       # 한 축당 격자 수 (grid_n × grid_n 후보)
+  height:       1.5      # 지면으로부터 RX 높이 (m)
+  raycasting_z: 300.0    # 레이캐스팅 시작 높이 (맵 최고점보다 높게)
+  margin:       0.01     # bounding box 가장자리 제거 비율 (0.15 = 양쪽 15%씩 제거)
+
+# ── Ray Tracing 파라미터 (PathSolver) ─────────────────────────
+ray_tracing:
+  num_samples:            100000   # samples_per_src: 광선 발사 개수
+  max_depth:              7        # 최대 반사/굴절 횟수
+  max_num_paths:          10000    # max_num_paths_per_src: 수신기당 최대 경로 수
+  seed:                   41       # 재현성을 위한 랜덤 시드
+  synthetic_array:        true     # true=안테나 배열을 합성적으로 처리 (속도 향상)
+
+  # 전파 현상 활성화 여부
+  los:                    true     # Line-of-Sight 직사 경로
+  specular_reflection:    true     # 정반사
+  diffuse_reflection:     true     # 난반사 (scattering)
+  refraction:             true     # 굴절/투과
+  diffraction:            false    # 회절 (건물 모서리 등, 느림)
+  edge_diffraction:       false    # 자유 모서리 회절
+  diffraction_lit_region: true     # 조명 영역에서의 회절
+
+# ── 재질(RadioMaterial) 파라미터 ──────────────────────────────
+material:
+  # 재질 전기적 특성 (itu_concrete 기준, 주파수에 따라 자동 업데이트됨)
+  relative_permittivity: 5.24    # 비유전율 (콘크리트 기준)
+  conductivity:          0.0462  # 전도율 [S/m]
+  thickness:             0.1     # 재질 두께 [m] (벽 두께 모델링)
+
+  # 난반사(Scattering) 파라미터
+  scattering_coefficient: 0.7    # S ∈ [0,1]: 0=완전 정반사, 1=완전 난반사
+  xpd_coefficient:        0.0    # Kx ∈ [0,1]: 교차편파 비율 (0=편파 유지)
+
+  # 산란 패턴: "lambertian" | "directive" | "backscattering"
+  scattering_pattern: "lambertian"
+
+  # directive 패턴 전용 파라미터 (scattering_pattern: directive 일 때만 사용)
+  directive_alpha_r: 3          # 정반사 방향 산란 로브 폭 (클수록 좁음)
+
+  # backscattering 패턴 전용 파라미터 (scattering_pattern: backscattering 일 때만 사용)
+  backscattering_alpha_r: 20     # 정반사 방향 로브 폭
+  backscattering_alpha_i: 30     # 입사 방향 로브 폭
+  backscattering_lambda:  0.7    # 정반사 방향 에너지 비율 [0,1]
+
+# ── 안테나 배열(PlanarArray) 파라미터 ────────────────────────
+antenna:
+  tx:
+    num_rows:    16
+    num_cols:    16
+    pattern:     "iso"     # "iso" | "dipole" | "hw_dipole" | "tr38901"
+    polarization: "V"      # "V" | "H" | "VH" | "cross"
+
+  rx:
+    num_rows:    4
+    num_cols:    4
+    pattern:     "iso"  # "iso" | "dipole" | "hw_dipole" | "tr38901"
+    polarization: "V"
+
+# ── 통신 파라미터 ─────────────────────────────────────────────
+comm:
+  frequency:   7.5e9   # 주파수 (Hz): 7.5GHz
+  # ※ 안테나 포트 수는 위 antenna 섹션의 num_rows × num_cols (× 편파) 로 결정됩니다.
+  #    (예: 4×4 평면배열 → 16포트 → 공분산 R_TX/R_RX 는 16×16)
+  #    아래 값은 더 이상 사용되지 않습니다(레거시).
+  num_tx_ant:  1
+  num_rx_ant:  1
+
+# ── 후처리 파라미터 ───────────────────────────────────────────
+postprocess:
+  threshold_watt: 1.0e-20  # 유효 경로 판별 임계값 (W), 낮을수록 약한 경로도 포함
+
+# ── 분석 설정 ─────────────────────────────────────────────────
+# PDP / PADP / 공분산 행렬 등 상세 분석을 뽑아낼 (TX, RX) 한 쌍을 지정합니다.
+analysis:
+  target_tx_index: 0   # 상세 분석 대상 TX 인덱스 (0-based, tx_positions 기준)
+  target_rx_index: 0   # 상세 분석 대상 RX 인덱스 (0-based)
+
+
+
+# ── 시각화 (USDA/Blender export) 설정 ────────────────────────
+visualization:
+  max_rays_per_rx:  5   # Blender 시각화용 RX당 최대 Ray 수 (8~20 권장)
+  ray_width:        2.0   # Ray 선 굵기 (USDA BasisCurves width)
+  tx_radius:        2.0   # TX 구체 반지름
+  rx_radius_target: 1.8   # Target RX 구체 반지름
+  rx_radius_other:  1.2   # 일반 RX 구체 반지름
+
+  # 격자 그림(rx_positions/hitmap/rsrp_heatmap) 배경에 실제 Twin Map 상공 뷰 표시
+  map_overlay:        true      # 맵 외곽선 오버레이 on/off
+  map_overlay_z_min:  auto      # 지면 제거 높이. auto=PLY에서 자동 추정(권장). 숫자(예: 1.0)로 수동 지정도 가능
+  map_overlay_alpha:  1      # 외곽선 투명도 (0~1, 1일수록 선명)
+  map_overlay_color:  "#444444" # 외곽선 색

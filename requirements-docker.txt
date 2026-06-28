@@ -1,0 +1,130 @@
+# ============================================================================
+# requirements-docker.txt — twin_minji_verPARK / 260528 Web_Agent 컨테이너용
+# ----------------------------------------------------------------------------
+# 생성 방법 : dclserver78 호스트의 .venv-webagent 를 `pip freeze` 한 결과를 고정
+# 생성일    : 2026-06-06
+# Python    : 3.10
+# 비고      : 호스트 venv 는 시스템 CUDA 에 의존(nvidia-* 휠 미설치)했으나,
+#             컨테이너에는 시스템 CUDA 가 없으므로 tensorflow 를
+#             `tensorflow[and-cuda]==2.21.0` 로 바꿔 CUDA 사용자 라이브러리
+#             (cudnn9 / cublas / cusolver 등 nvidia-*-cu12 휠)를 함께 설치한다.
+#             drjit / mitsuba 의 CUDA variant 는 휠 자체에 커널이 포함되어
+#             있고, libcuda.so(드라이버)는 런타임에 nvidia-container-toolkit
+#             (--gpus all) 이 주입한다.
+# ============================================================================
+absl-py==2.4.0
+aiofiles==25.1.0
+annotated-doc==0.0.4
+annotated-types==0.7.0
+anyio==4.13.0
+asttokens==3.0.1
+astunparse==1.6.3
+attrs==26.1.0
+certifi==2026.5.20
+charset-normalizer==3.4.7
+click==8.4.1
+colorlog==6.10.1
+comm==0.2.3
+contourpy==1.3.2
+cycler==0.12.1
+decorator==5.3.1
+drjit==1.3.1
+embreex==4.4.0
+exceptiongroup==1.3.1
+executing==2.2.1
+fastapi==0.136.3
+flatbuffers==25.12.19
+fonttools==4.63.0
+gast==0.7.0
+geopandas==1.1.3
+google-pasta==0.2.0
+grpcio==1.81.0
+h11==0.16.0
+h5py==3.14.0
+httpcore==1.0.9
+httptools==0.8.0
+httpx==0.28.1
+idna==3.18
+importlib_resources==7.1.0
+ipydatawidgets==4.3.5
+ipython==8.39.0
+ipywidgets==8.1.8
+jedi==0.20.0
+jsonschema==4.26.0
+jsonschema-specifications==2025.9.1
+jupyterlab_widgets==3.0.16
+keras==3.12.2
+kiwisolver==1.5.0
+libclang==18.1.1
+lxml==6.1.1
+manifold3d==3.5.0
+mapbox_earcut==2.0.0
+markdown-it-py==4.2.0
+matplotlib==3.10.9
+matplotlib-inline==0.2.2
+mdurl==0.1.2
+mitsuba==3.8.0
+ml_dtypes==0.5.4
+namex==0.1.0
+networkx==3.4.2
+numpy==2.2.6
+opt_einsum==3.4.0
+optree==0.19.1
+packaging==26.2
+pandas==2.3.3
+parso==0.8.7
+pexpect==4.9.0
+pillow==12.2.0
+prompt_toolkit==3.0.52
+protobuf==7.35.0
+ptyprocess==0.7.0
+pure_eval==0.2.3
+pycollada==0.9.3
+pydantic==2.13.4
+pydantic_core==2.46.4
+Pygments==2.20.0
+pyogrio==0.12.1
+pyparsing==3.3.2
+pyproj==3.7.1
+python-dateutil==2.9.0.post0
+python-dotenv==1.2.2
+python-multipart==0.0.30
+pythreejs==2.4.2
+pytz==2026.2
+PyYAML==6.0.3
+referencing==0.37.0
+requests==2.34.2
+rich==15.0.0
+rpds-py==0.30.0
+rtree==1.4.1
+scipy==1.15.3
+shapely==2.1.2
+sionna==1.2.2
+sionna-rt==1.2.2
+six==1.17.0
+stack-data==0.6.3
+starlette==1.2.1
+svg.path==7.0
+tensorflow[and-cuda]==2.21.0
+termcolor==3.3.0
+traitlets==5.15.1
+traittypes==0.2.3
+trimesh==4.12.2
+typing-inspection==0.4.2
+typing_extensions==4.15.0
+tzdata==2026.2
+urllib3==2.7.0
+uvicorn==0.49.0
+uvloop==0.22.1
+vhacdx==0.0.10
+watchfiles==1.2.0
+wcwidth==0.7.0
+websockets==16.0
+widgetsnbextension==4.0.15
+wrapt==2.2.1
+xxhash==3.7.0
+# --- 추가(2026-06-06): 구 스냅샷 250922/250924 의 P2B_BF_Analysis 가 seaborn 사용 ---
+seaborn==0.13.2
+# --- 추가(2026-06-06): PARK_2 RT Agent 이식 — 지면 레이캐스팅(RX 격자/TX 스냅) ---
+# open3d 0.19.0 = numpy 2.x 호환 최초 라인. RaycastingScene 사용.
+open3d==0.19.0

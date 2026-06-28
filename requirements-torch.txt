@@ -1,0 +1,27 @@
+# ============================================================================
+# requirements-torch.txt — 컨테이너 내 "venv-torch" 용 (옵션 A: 멀티 venv)
+# ----------------------------------------------------------------------------
+# 대상 폴더 : 260604 metric 도출 / 260606 test / 260428 VAE
+#             (torch 기반 GPU linalg / scikit-learn 클러스터링 / seaborn 시각화)
+# 근거      : 각 .py 헤더 명시 환경
+#             - torch 2.12.0+cu130 (260606 test, 일부 260604)
+#             - scikit-learn 1.7.2 (260604/260428)
+#             - numpy 2.2.6 / scipy 1.15.3 / matplotlib 3.10.9 (webagent 와 동일)
+# 비고      : torch 는 cu130 인덱스에서 별도 설치(아래 Dockerfile 참조).
+#             여기에는 cu130 wheel 과 무관한 공통 패키지만 둔다.
+#             numpy/scipy/matplotlib 는 webagent venv 와 같은 핀이라 호환.
+# ============================================================================
+
+# 공통 수치/시각화 (webagent 와 동일 핀)
+numpy==2.2.6
+scipy==1.15.3
+matplotlib==3.10.9
+pandas==2.3.3
+
+# torch 폴더 전용 추가
+scikit-learn==1.7.2
+seaborn==0.13.2
+
+# 보조
+pyyaml==6.0.3
+tqdm

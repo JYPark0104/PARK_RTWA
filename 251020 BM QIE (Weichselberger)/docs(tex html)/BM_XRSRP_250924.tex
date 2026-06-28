@@ -1,0 +1,295 @@
+\documentclass[10pt]{article}
+\usepackage[a4paper, margin=1in]{geometry}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage[hangul]{kotex}
+\usepackage{bm} % For bold math symbols
+
+\begin{document}
+
+\section{2차원 오버샘플링 DFT 코드북 및 빔포밍}
+\label{sec:dft_codebook}
+
+\subsection{$N$-antenna $K$-oversampled DFT 코드북}
+\label{subsec:dft_def}
+
+\begin{equation}
+[\mathbf{F}_{N,K}]_{i,j} = \frac{1}{\sqrt{N}} \exp\left(-\mathsf{j}\frac{2\pi ij}{NK}\right), \quad i = 0, 1, \ldots, N-1, \quad j \in \mathcal{K} = \{0, 1, \ldots, NK-1\}
+\end{equation}
+
+여기서 $\mathcal{K}$는 빔 인덱스 집합을 나타낸다.
+
+\subsection{2차원 $N_1 N_2$-antenna $K_1 K_2$-oversampled DFT 코드북}
+\label{subsec:dft_def_2d}
+
+2차원 안테나 배열의 경우 Kronecker product로 결합:
+\begin{equation}
+\mathbf{F}_{N_1,K_1,N_2,K_2} = \mathbf{F}_{N_1,K_1} \otimes \mathbf{F}_{N_2,K_2} \in \mathbb{C}^{N_1 N_2 \times N_1 K_1 N_2 K_2}
+\end{equation}
+
+\section{시스템 모델}
+\label{sec:system_setup}
+
+\subsection{BS 및 UE 안테나 배열 구성:}
+\begin{itemize}
+    \item {기지국 (BS)}: $8 \times 8$ 패널 구성, 패널당 $4 \times 4$ AE, 총 $N_{\text{b}} = 1024$ AE (Antenna Element)
+    \begin{itemize}
+        \item $L_{\text{b}} = 64$ 레이어 (레이어당 $4 \times 4$ AE)
+        \item 패널 간격: 수직 2.5 λ, 수평 2.5 λ
+        \item 편파: 단일 편파 (V형)
+        \item 안테나 패턴: 3GPP 38.901 표준 (60°/60° 2차 가우시안)
+        \item {기지국 (BS) 고정 방향}: 방위각 246°, 하향틸트 3°, 롤 0°
+    \end{itemize}
+    \item {사용자 단말 (UE)}: $1 \times 1$ 패널 구성, 패널당 $4 \times 4$ AE, 총 $N_{\text{u}} = 16$ AE
+    \begin{itemize}
+        \item $L_{\text{u}} = 4$ 레이어 (레이어당 $2 \times 2$ AE)
+        \item 편파: 단일 편파 (V형)
+        \item 안테나 패턴: 3GPP 38.901 표준 (60°/60° 2차 가우시안) 
+        \item {사용자 단말 (UE) 고정 방향}: 방위각 0°, 고도각 0°, 롤 0°
+    \end{itemize}
+\end{itemize}
+
+\subsection{2차원 오버샘플링 DFT 코드북:}
+\begin{itemize}
+    \item 기지국 코드북 (2차원 4배 16-DFT 코드북 64개 빔, 64 레이어 할당 가능): 
+    $$\mathbf{F}_{4,2,4,2} = \mathbf{F}_{4,2} \otimes \mathbf{F}_{4,2}, \quad k \in \mathcal{K}_{\text{b}} = \{0, 1, \ldots, 63\}$$ 
+    \item 사용자 단말 코드북 (2차원 4배 4-DFT 코드북 16개 빔, 4 레이어 할당 가능): 
+    $$\mathbf{F}_{2,2,2,2} = \mathbf{F}_{2,2} \otimes \mathbf{F}_{2,2}, \quad \ell \in \mathcal{K}_{\text{u}} = \{0, 1, \ldots, 15\}$$
+\end{itemize}
+
+\subsection{일반적인 빔 조합 모델}
+\label{subsec:general_bf_model}
+
+각 레이어에 서로 다른 빔 할당 가능:
+\begin{align}
+\mathbf{W}_{\text{b}}(\mathbf{k}) &= \text{blkdiag}\left(\mathbf{f}_{4,2,4,2}[k_1], \ldots, \mathbf{f}_{4,2,4,2}[k_{L_{\text{b}}}]\right) \in \mathbb{C}^{N_{\text{b}} \times L_{\text{b}}} \\
+\mathbf{W}_{\text{u}}(\boldsymbol{\ell}) &= \text{blkdiag}\left(\mathbf{f}_{2,2,2,2}[\ell_1], \ldots, \mathbf{f}_{2,2,2,2}[\ell_{L_{\text{u}}}]\right) \in \mathbb{C}^{N_{\text{u}} \times L_{\text{u}}}
+\end{align}
+여기서 $\mathbf{k} = [k_1, \ldots, k_{L_{\text{b}}}]^{\mathsf{T}}$, $\boldsymbol{\ell} = [\ell_1, \ldots, \ell_{L_{\text{u}}}]^{\mathsf{T}}$는 빔 인덱스 벡터이다.
+
+\subsubsection{빔 도메인 채널 정의}
+\begin{equation}
+\mathbf{H}_{\text{beam}}[\mathbf{k}, \boldsymbol{\ell}] = \mathbf{W}_{\text{u}}(\boldsymbol{\ell})^{\mathsf{H}} \mathbf{H}_{\text{AE}} \mathbf{W}_{\text{b}}(\mathbf{k}) \in \mathbb{C}^{L_{\text{u}} \times L_{\text{b}}}
+\end{equation}
+
+\section{빔 세트 최적화 전략}
+\label{sec:beam_set_optimization}
+
+본 섹션에서는 다중 레이어 빔 조합 문제를 개별 레이어에 빔을 할당하는 복잡한 문제에서, 성능이 우수한 \textbf{빔 세트(Beam Set)}를 선택하는 문제로 변환하여 접근하는 최적화 전략을 제안한다. 이 전략의 핵심은 사전 계산된 4D 상호작용 텐서 $\mathcal{G}$를 이용하여 선택된 빔 세트의 품질을 \textbf{Condition Number}라는 단일 지표로 직접 평가하는 것이다.
+
+\subsection{4D 상호작용 텐서 사전 계산}
+\label{subsec:precomputation}
+최적화에 필요한 모든 정보를 담고 있는 4차원 상호작용 텐서 $\mathcal{G}$를 오프라인으로 미리 계산한다. 이 텐서는 두 개의 독립된 빔 쌍 $(k_1, \ell_1)$과 $(k_2, \ell_2)$가 형성하는 빔 도메인 채널 간의 상호작용(Frobenius 내적)의 기댓값으로 정의된다.
+
+\begin{equation}
+\mathcal{G}[k_1, k_2, \ell_1, \ell_2] = \mathbb{E}_{\mathbf{H}_\text{AE}}\left[ \text{tr}\left(\mathbf{H}_{\text{beam}}[k_1\mathbf{1}, \ell_1\mathbf{1}]^{\mathsf{H}} \mathbf{H}_{\text{beam}}[k_2\mathbf{1}, \ell_2\mathbf{1}]\right) \right]
+\end{equation}
+여기서 $\mathbf{H}_{\text{beam}}[k\mathbf{1}, \ell\mathbf{1}]$은 모든 레이어에 단일 빔 쌍 $(k, \ell)$을 할당했을 때의 빔 도메인 채널을 의미한다.
+
+이 텐서는 다음과 같은 두 가지 핵심 정보를 통합적으로 제공한다:
+\begin{itemize}
+    \item \textbf{빔 쌍 자체 이득}: 텐서의 대각 성분($k_1=k_2, \ell_1=\ell_2$)은 해당 빔 쌍 $(k, \ell)$이 사용될 때의 채널 파워를 나타낸다.
+    $$\mathcal{G}[k, k, \ell, \ell] = \mathbb{E}\left[ \left\|\mathbf{H}_{\text{beam}}[k\mathbf{1}, \ell\mathbf{1}]\right\|_F^2 \right]$$
+    
+    \item \textbf{빔 쌍 간 상호 상관관계}: 텐서의 비대각 성분은 두 개의 서로 다른 빔 쌍이 형성하는 채널이 얼마나 유사한지를 나타낸다.
+\end{itemize}
+이 방식은 BS 빔 64개, UE 빔 16개에 대해 총 $64 \times 64 \times 16 \times 16 \approx 10^6$개의 원소를 계산해야 하므로 상당한 사전 계산 비용이 발생하지만, 채널 환경의 특성을 가장 정확하게 반영할 수 있다.
+
+\subsection{제한적 빔 할당 규칙 및 빔 쌍 공분산 행렬 구성}
+\label{subsec:constrained_allocation}
+탐색 공간의 복잡도를 현실적인 수준으로 낮추기 위해, 다음과 같은 제한적 빔 할당 규칙을 도입한다:
+
+\paragraph{빔 개수 제한}
+선택 가능한 빔 개수는 $2^{\mu}$ 형태로 제한한다:
+\begin{itemize}
+    \item BS 빔 개수: $K_{\text{b}} \in \{1, 2, 4, 8, 16\}$
+    \item UE 빔 개수: $K_{\text{u}} \in \{1, 2, 4, 8, 16\}$
+\end{itemize}
+이는 향후 확장 가능하나, 현재는 계산 효율성을 위해 이 집합으로 제한한다.
+
+\paragraph{순환 반복 할당 (Cyclic Repetitive Assignment)}
+선택된 빔들은 레이어에 순환 반복으로 할당된다:
+\begin{itemize}
+    \item $K_{\text{b}}=2$ 인 경우: $1,2,1,2,\ldots,1,2$ (총 $L_{\text{b}}=64$ 개 레이어)
+    \item $K_{\text{b}}=4$ 인 경우: $1,2,3,4,1,2,3,4,\ldots,1,2,3,4$ (총 $L_{\text{b}}=64$ 개 레이어)
+\end{itemize}
+이러한 순환 반복 할당을 통해 각 빔은 $L_{\text{b}}/K_{\text{b}}$ 개의 레이어를 균등하게 담당하며, 레이어 할당 순서가 고정되어 $K_{\text{b}}!$ 및 $K_{\text{u}}!$의 순열 복잡도가 제거된다.
+
+이 규칙 하에서, 선택된 BS 빔 세트 $\mathcal{K}_{\text{sel}} = \{k_1, \dots, k_{K_{\text{b}}}\}$ 와 UE 빔 세트 $\mathcal{L}_{\text{sel}} = \{\ell_1, \dots, \ell_{K_{\text{u}}}\}$ 가 주어지면, 이들로 구성 가능한 총 $K_{\text{b}} \times K_{\text{u}}$ 개의 빔 쌍에 대한 \textbf{빔 쌍 공분산 행렬} $\mathbf{M}$ 을 구성할 수 있다. 이 행렬의 크기는 $(K_{\text{b}} K_{\text{u}}) \times (K_{\text{b}} K_{\text{u}})$ 이며, 4D 텐서 $\mathcal{G}$ 의 값으로 채워진다.
+
+\subsubsection{빔 쌍 공분산 행렬 $\mathbf{M}$ 구성 예시}
+구체적인 예시로, BS 빔 2개($k_i, k_j$)와 UE 빔 2개($\ell_n, \ell_m$)을 선택한 경우($K_{\text{b}} = 2, K_{\text{u}} = 2$), 4개의 빔 쌍이 생성된다:
+$(k_i, \ell_n)$, $(k_i, \ell_m)$, $(k_j, \ell_n)$, $(k_j, \ell_m)$
+
+이들로 구성되는 $4 \times 4$ 빔 쌍 공분산 행렬 $\mathbf{M}$은 다음과 같다:
+\begin{equation}
+\mathbf{M} = \begin{pmatrix}
+\mathcal{G}[k_i, k_i, \ell_n, \ell_n] & \mathcal{G}[k_i, k_i, \ell_n, \ell_m] & \mathcal{G}[k_i, k_j, \ell_n, \ell_n] & \mathcal{G}[k_i, k_j, \ell_n, \ell_m] \\
+\mathcal{G}[k_i, k_i, \ell_m, \ell_n] & \mathcal{G}[k_i, k_i, \ell_m, \ell_m] & \mathcal{G}[k_i, k_j, \ell_m, \ell_n] & \mathcal{G}[k_i, k_j, \ell_m, \ell_m] \\
+\mathcal{G}[k_j, k_i, \ell_n, \ell_n] & \mathcal{G}[k_j, k_i, \ell_n, \ell_m] & \mathcal{G}[k_j, k_j, \ell_n, \ell_n] & \mathcal{G}[k_j, k_j, \ell_n, \ell_m] \\
+\mathcal{G}[k_j, k_i, \ell_m, \ell_n] & \mathcal{G}[k_j, k_i, \ell_m, \ell_m] & \mathcal{G}[k_j, k_j, \ell_m, \ell_n] & \mathcal{G}[k_j, k_j, \ell_m, \ell_m]
+\end{pmatrix}
+\end{equation}
+
+일반적으로, 빔 쌍 $(k_i, \ell_n)$과 $(k_j, \ell_m)$에 해당하는 행렬 $\mathbf{M}$의 원소는 $\mathbf{M}_{(in, jm)} = \mathcal{G}[k_i, k_j, \ell_n, \ell_m]$가 된다.
+
+\subsection{Condition Number 기반 최적 빔 세트 탐색}
+\label{subsec:condition_number_search}
+구성된 빔 쌍 공분산 행렬 $\mathbf{M}$의 품질 평가를 위해 수치적 안정성을 고려한 지표를 사용한다. 만약, 최소 고유값이 0에 가까우면 수치적으로 불안정하므로, Condition Number의 역수 $\xi(\mathbf{M})$를 사용한다.
+\begin{equation}
+\xi(\mathbf{M}) = \frac{\lambda_{\min}(\mathbf{M})}{\lambda_{\max}(\mathbf{M})} = \frac{1}{\kappa(\mathbf{M})}
+\end{equation}
+
+$\xi(\mathbf{M})$이 1에 가까울수록, 선택된 빔 쌍들이 서로 직교에 가까운 채널을 형성하여 공간 다중화에 이상적이다. 이 지표는 수치적으로 안정적이며, 최대화 문제로 변환하여 직관적인 최적화가 가능하다.
+
+따라서 최적화 목표는 다음과 같이 정의된다:
+\begin{equation}
+(\mathcal{K}_{\text{sel}}^{\star}, \mathcal{L}_{\text{sel}}^{\star}) = \arg\max_{\mathcal{K}_{\text{sel}} \subset \mathcal{K}_{\text{b}}, \mathcal{L}_{\text{sel}} \subset \mathcal{K}_{\text{u}}} \xi(\mathbf{M}(\mathcal{K}_{\text{sel}}, \mathcal{L}_{\text{sel}}))
+\end{equation}
+
+\paragraph{제약 조건}
+빔 개수 선택은 다음 제약 조건을 만족해야 한다:
+\begin{align}
+|\mathcal{K}_{\text{sel}}| &= K_{\text{b}} \in \{1, 2, 4, 8, 16\} \\
+|\mathcal{L}_{\text{sel}}| &= K_{\text{u}} \in \{1, 2, 4\} \\
+1 \leq K_{\text{b}} &\leq \min(|\mathcal{K}_{\text{b}}|, L_{\text{b}}) = \min(64, 64) = 64 \\
+1 \leq K_{\text{u}} &\leq \min(|\mathcal{K}_{\text{u}}|, L_{\text{u}}) = \min(16, 4) = 4 \\
+K_{\text{b}} \cdot K_{\text{u}} &\leq L_{\text{b}} \cdot L_{\text{u}} = 64 \times 4 = 256 \quad \text{(총 레이어 수 제한)}
+\end{align}
+
+\subsubsection{Greedy Set Expansion 탐색 알고리즘}
+모든 빔 세트 조합을 탐색하는 것은 비효율적이므로, 다음과 같은 Greedy 탐색 방식을 사용한다.
+\begin{enumerate}
+    \item \textbf{초기화}: $\mathcal{K}_{\text{sel}} = \emptyset$, $\mathcal{L}_{\text{sel}} = \emptyset$.
+    \item \textbf{첫 빔 쌍 선택}: 가장 이득 $\mathcal{G}[k,k,\ell,\ell]$ 이 높은 빔 쌍 $(k_1, \ell_1)$을 각 세트에 추가한다.
+    \item \textbf{반복적 빔 추가}: 목표하는 빔 개수 $(K_{\text{b}}, K_{\text{u}})$ 에 도달할 때까지 다음을 반복한다.
+    \begin{itemize}
+        \item \textbf{BS 빔 추가}: 아직 선택되지 않은 모든 BS 빔 $k$ 에 대해, 임시 세트 $\mathcal{K}_{\text{sel}} \cup \{k\}$ 와 $\mathcal{L}_{\text{sel}}$ 로 행렬 $\mathbf{M}$ 을 구성하고 $\xi(\mathbf{M})$ 을 계산한다. $\xi(\mathbf{M})$ 을 가장 크게 만드는 빔 $k^{\star}$ 를 찾아 $\mathcal{K}_{\text{sel}}$ 에 추가한다.
+        \item \textbf{UE 빔 추가}: 위와 동일한 방식으로 $\xi(\mathbf{M})$ 을 가장 크게 만드는 UE 빔 $\ell^{\star}$ 을 찾아 $\mathcal{L}_{\text{sel}}$ 에 추가한다.
+    \end{itemize}
+\end{enumerate}
+
+\subsubsection{계산 복잡도 분석}
+순환 반복 할당으로 인한 복잡도 절약 효과와 함께 각 단계의 계산 복잡도를 분석한다.
+
+\paragraph{순환 반복 할당의 복잡도 절약 효과}
+기존 방식 대비 순환 반복 할당이 제공하는 복잡도 절약:
+\begin{itemize}
+    \item \textbf{기존 방식}: 빔 선택 $\binom{64}{K_{\text{b}}} \times \binom{16}{K_{\text{u}}}$ + 순열 배치 $K_{\text{b}}! \times K_{\text{u}}!$
+    \item \textbf{순환 반복 할당}: 빔 선택만 $\binom{64}{K_{\text{b}}} \times \binom{16}{K_{\text{u}}}$ (순서 고정으로 순열 복잡도 제거)
+    \item \textbf{복잡도 절약}: $K_{\text{b}}! \times K_{\text{u}}!$ 만큼 감소 (예: $K_{\text{b}}=4, K_{\text{u}}=4$일 때 $24 \times 24 = 576$배 절약)
+\end{itemize}
+
+\paragraph{Greedy 빔 선택 단계별 복잡도}
+$i$ 번째 반복에서 이미 선택된 빔이 $|\mathcal{K}_{\text{sel}}| = s_{\text{b}}$ 개, $|\mathcal{L}_{\text{sel}}| = s_{\text{u}}$ 개라 할 때:
+\begin{itemize}
+    \item \textbf{BS 빔 후보 평가}: $|\mathcal{K}_{\text{b}}| - s_{\text{b}} = 64 - s_{\text{b}}$ 개의 후보 빔
+    \item \textbf{빔 쌍 공분산 행렬}: $(s_{\text{b}} + 1) \times s_{\text{u}}$ 크기
+    \item \textbf{고유값 계산}: $O(((s_{\text{b}} + 1) s_{\text{u}})^3)$ 복잡도
+\end{itemize}
+
+\paragraph{전체 알고리즘 복잡도}
+순환 반복 할당 하에서 빔 선택만의 복잡도:
+\begin{equation}
+\mathcal{C}_{\text{selection}} = \sum_{i=1}^{K_{\text{b}}+K_{\text{u}}} \left[ (64 - s_{\text{b}}^{(i)}) + (16 - s_{\text{u}}^{(i)}) \right] \times O((s_{\text{b}}^{(i)} \cdot s_{\text{u}}^{(i)})^3)
+\end{equation}
+여기서 $s_{\text{b}}^{(i)}, s_{\text{u}}^{(i)}$ 는 $i$ 번째 반복에서 선택된 빔 개수이다.
+
+이 과정을 통해 최종적으로 최적의 빔 세트 $(\mathcal{K}_{\text{sel}}^{\star}, \mathcal{L}_{\text{sel}}^{\star})$가 결정된다.
+
+\section{최종 Capacity Loss 성능 평가}
+\label{sec:objective}
+
+\subsection{빔 개수별 최적 빔 세트 탐색}
+앞서 제안된 Greedy Set Expansion 알고리즘을 사용하여, 다양한 빔 개수 조합 $(K_{\text{b}}, K_{\text{u}})$에 대해 각각의 최적 빔 세트를 탐색한다.
+
+각 빔 개수 조합 $(K_{\text{b}}, K_{\text{u}})$에 대해 다음 과정을 수행한다:
+\begin{enumerate}
+\item \textbf{빔 세트 탐색}: \ref{subsec:condition_number_search}의 Greedy Set Expansion으로 Condition Index $\xi(\mathbf{M})$ 를 최대화하는 빔 세트 $(\mathcal{K}_{\text{sel}}^{(K_{\text{b}}, K_{\text{u}})}, \mathcal{L}_{\text{sel}}^{(K_{\text{b}}, K_{\text{u}})})$ 를 탐색
+\item \textbf{실제 빔포밍 행렬 구성}: 선택된 빔 세트로부터 제한적 빔 할당 규칙에 따라 빔포밍 행렬 구성
+\begin{align}
+\mathbf{W}_{\text{b}}^{(K_{\text{b}})} &= \text{blkdiag}\left(\mathbf{f}_{4,2,4,2}[k_1], \ldots, \mathbf{f}_{4,2,4,2}[k_{L_{\text{b}}}]\right) \in \mathbb{C}^{N_{\text{b}} \times L_{\text{b}}} \\
+\mathbf{W}_{\text{u}}^{(K_{\text{u}})} &= \text{blkdiag}\left(\mathbf{f}_{2,2,2,2}[\ell_1], \ldots, \mathbf{f}_{2,2,2,2}[\ell_{L_{\text{u}}}]\right) \in \mathbb{C}^{N_{\text{u}} \times L_{\text{u}}}
+\end{align}
+\item \textbf{빔 도메인 채널 생성}: 송신단과 수신단 빔포밍 행렬들을 조합
+\begin{equation}
+\mathbf{H}_{\text{beam}}^{(K_{\text{b}}, K_{\text{u}})} = (\mathbf{W}_{\text{u}}^{(K_{\text{u}})})^{\mathsf{H}} \mathbf{H}_{\text{AE}} \mathbf{W}_{\text{b}}^{(K_{\text{b}})} \in \mathbb{C}^{L_{\text{u}} \times L_{\text{b}}}
+\end{equation}
+\end{enumerate}
+
+\subsection{빔 개수별 Capacity Loss 비교}
+각 빔 개수 조합에서 얻은 최적 빔 세트의 실제 성능을 Capacity Loss로 평가한다.
+
+\subsubsection{AE 채널 기준 용량}
+\begin{equation}
+C_{\text{AE}} = \mathbb{E}\left[\log_2 \det\left(\mathbf{I} + \frac{\text{SNR}}{N_{\text{b}}} \mathbf{H}_{\text{AE}} \mathbf{H}_{\text{AE}}^{\mathsf{H}}\right)\right]
+\end{equation}
+
+\subsubsection{빔 개수별 빔포밍 용량}
+각 빔 개수 조합 $(K_{\text{b}}, K_{\text{u}})$에 대한 빔포밍 후 채널 용량:
+\begin{equation}
+C_{\text{beam}}^{(K_{\text{b}}, K_{\text{u}})} = \mathbb{E}\left[\log_2 \det\left(\mathbf{I} + \frac{\text{SNR}}{N_{\text{b}}} \mathbf{H}_{\text{beam}}^{(K_{\text{b}}, K_{\text{u}})} (\mathbf{H}_{\text{beam}}^{(K_{\text{b}}, K_{\text{u}})})^{\mathsf{H}}\right)\right]
+\end{equation}
+
+\subsubsection{빔 개수별 Capacity Loss}
+\begin{equation}
+\mathcal{L}^{(K_{\text{b}}, K_{\text{u}})} = C_{\text{AE}} - C_{\text{beam}}^{(K_{\text{b}}, K_{\text{u}})}
+\end{equation}
+
+\subsection{최종 최적 빔 개수 결정}
+모든 후보 빔 개수 조합에서의 Capacity Loss를 비교하여 최종 최적 빔 개수를 결정한다:
+\begin{equation}
+(K_{\text{b}}^{\star}, K_{\text{u}}^{\star}) = \arg\min_{K_{\text{b}}, K_{\text{u}}} \mathcal{L}^{(K_{\text{b}}, K_{\text{u}})}
+\end{equation}
+
+여기서 빔 개수 탐색은 앞서 정의된 제약 조건 $K_{\text{b}} \in \{1, 2, 4, 8, 16\}$, $K_{\text{u}} \in \{1, 2, 4, 8, 16\}$ 범위 내에서 수행된다.
+
+최종 선택된 빔 개수 $(K_{\text{b}}^{\star}, K_{\text{u}}^{\star})$에 해당하는 최적 빔 세트가 전체 시스템의 최종 빔포밍 솔루션이 된다.
+
+\subsection{알고리즘 요약}
+\subsubsection{단계별 처리 과정}
+\begin{enumerate}
+\item \textbf{4D 텐서 사전 계산}: $\mathcal{G}[k_1, k_2, \ell_1, \ell_2]$ 계산 (약 $10^6$ 개 원소)
+\item \textbf{제한적 빔 할당 규칙}: 선택된 빔 개수에 따른 균등 레이어 할당 정책 적용
+\item \textbf{빔 쌍 공분산 행렬 구성}: 선택된 빔 세트로부터 $\mathbf{M}$ 행렬 구성
+\item \textbf{Greedy Set Expansion}: $\xi(\mathbf{M})$을 최대화하는 빔 세트 탐색
+\item \textbf{Capacity Loss 평가}: 최종 빔 세트의 성능 검증
+\end{enumerate}
+
+\subsection{성능 평가 지표}
+제안된 빔 세트 기반 최적화 방법의 성능을 다음 지표들로 평가한다:
+
+\subsubsection{주요 성능 지표}
+\begin{itemize}
+    \item \textbf{Capacity Loss}: $\mathcal{L}(\mathcal{K}_{\text{sel}}, \mathcal{L}_{\text{sel}}) = C_{\text{AE}} - C_{\text{beam}}(\mathcal{K}_{\text{sel}}, \mathcal{L}_{\text{sel}})$ (낮을수록 우수)
+    \item \textbf{Condition Index}: $\xi(\mathbf{M}) = \frac{\lambda_{\min}(\mathbf{M})}{\lambda_{\max}(\mathbf{M})}$ (높을수록 우수, 수치적 안정성 확보)
+    \item \textbf{빔 세트 직교성}: 선택된 빔 쌍들의 상호 독립성 정도
+\end{itemize}
+
+\subsubsection{계산 효율성 지표}
+\begin{itemize}
+    \item \textbf{4D 텐서 활용도}: 사전 계산된 $\mathcal{G}[k_1, k_2, \ell_1, \ell_2]$ 정보의 활용 효율성
+    \item \textbf{빔 세트 선택 효율성}: 목표 빔 개수($K_{\text{b}}, K_{\text{u}}$) 도달에 필요한 Greedy 반복 횟수
+    \item \textbf{공분산 행렬 구성 속도}: 빔 쌍 공분산 행렬 $\mathbf{M}$ 구성 및 $\xi(\mathbf{M})$ 계산 효율성
+    \item \textbf{계산 복잡도}: $\mathcal{C}_{\text{total}} = \sum_{i=1}^{K_{\text{b}}+K_{\text{u}}} N_{\text{candidates}} \times O(N_{\text{pairs}}^3)$
+    \item \textbf{전체 탐색 공간 대비 효율성}: 전체 빔 세트 조합 공간 대비 실제 탐색 비율
+\end{itemize}
+
+\section{결론}
+\label{sec:conclusion}
+본 문서는 2차원 DFT 코드북 기반 시스템에서 다중 레이어 빔 조합을 최적화하기 위한 빔 세트 기반 전략을 제시했다.
+
+\subsection{주요 기여}
+\begin{itemize}
+    \item \textbf{4D 상호작용 텐서($\mathcal{G}$)}: 빔 쌍의 자체 이득과 상호 상관관계를 통합적으로 모델링하여, 채널 환경의 특성을 정확하게 반영하는 사전 계산 프레임워크를 제안했다.
+    \item \textbf{제한적 빔 할당 규칙}: 선택된 빔 개수에 따른 균등 레이어 할당을 통해 탐색 공간의 복잡도를 현실적인 수준으로 감소시키는 방법을 제시했다.
+    \item \textbf{빔 쌍 공분산 행렬}: 선택된 빔 세트로부터 구성되는 공분산 행렬 $\mathbf{M}$을 통해 빔 세트의 품질을 직접 평가하는 방법을 제안했다.
+    \item \textbf{Greedy Set Expansion}: 수치적 안정성을 고려한 Condition Index $\xi(\mathbf{M})$을 최대화하는 빔 세트를 효율적으로 탐색하는 Greedy 알고리즘을 제안했다.
+\end{itemize}
+
+\subsection{방법론의 특징}
+이러한 빔 세트 기반 접근 방식은 방대한 탐색 공간 문제에 대해, 상당한 사전 계산 비용($\approx 10^6$개 원소)을 감수하는 대신, 매우 정확하고 실용적인 해를 제공할 수 있다.
+
+제안된 방법은 개별 레이어 빔 할당의 복잡성을 빔 세트 선택 문제로 변환함으로써, 계산 효율성과 성능을 모두 확보하며, 다층 사용자 환경에서 QIE (Quasi-Identical Environment) 적용 가능성을 크게 높인다.
+
+\end{document}

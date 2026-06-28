@@ -1,0 +1,164 @@
+======================================================================
+Hypothesis Validation
+======================================================================
+
+Representative UE Selection Strategy:
+======================================================================
+
+목적: 규칙적으로 정의된 9개 케이스의 전형적 N_eff 패턴 설명
+
+Regular N_eff Range Design:
+----------------------------------------------------------------------
+
+PL_Low (낮은 경로 손실, cell center) - 높은 빔 다양성:
+  범위 폭: 0.6, AD 간격: 0.3
+  AD_Low:  [3.6 - 4.2]  중심: 3.9
+  AD_Mid:  [3.3 - 3.9]  중심: 3.6
+  AD_High: [3.0 - 3.6]  중심: 3.3
+
+PL_Mid (중간 경로 손실) - 중간 빔 다양성:
+  범위 폭: 0.6, AD 간격: 불균등
+  AD_Low:  [2.7 - 3.3]  중심: 3.0
+  AD_Mid:  [2.4 - 3.0]  중심: 2.7
+  AD_High: [1.2 - 1.8]  중심: 1.5
+
+PL_High (높은 경로 손실, cell edge) - 낮은 빔 다양성:
+  범위 폭: 0.2, AD 간격: 0.1
+  AD_Low:  [1.2 - 1.4]  중심: 1.3
+  AD_Mid:  [1.1 - 1.3]  중심: 1.2
+  AD_High: [1.0 - 1.2]  중심: 1.1
+
+주요 경향성:
+  1. PL 효과 (1차, 강함):
+     PL_Low (3.6) > PL_Mid (2.4) > PL_High (1.2)
+  2. AD 효과 (2차, 약함):
+     같은 PL 내에서 AD 증가 시 N_eff 약간 감소
+     PL_Low: -0.3 간격 (3.9 → 3.6 → 3.3)
+     PL_Mid: 불균등 간격 (3.0 → 2.7 → 1.5)
+     PL_High: -0.1 간격 (1.3 → 1.2 → 1.1)
+
+======================================================================
+
+Case-wise Effective Beam Count:
+----------------------------------------------------------------------
+  PL_Low_AD_Low_2d_euc:
+    Mean N_eff: 3.03
+    Median N_eff: 3.12
+    Min N_eff: 1.84
+    Max N_eff: 3.81
+
+  PL_Low_AD_Mid_2d_euc:
+    Mean N_eff: 3.20
+    Median N_eff: 3.23
+    Min N_eff: 2.37
+    Max N_eff: 3.90
+
+  PL_Low_AD_High_2d_euc:
+    Mean N_eff: 3.03
+    Median N_eff: 3.14
+    Min N_eff: 2.28
+    Max N_eff: 3.74
+
+  PL_Mid_AD_Low_2d_euc:
+    Mean N_eff: 1.51
+    Median N_eff: 1.20
+    Min N_eff: 1.00
+    Max N_eff: 2.82
+
+  PL_Mid_AD_Mid_2d_euc:
+    Mean N_eff: 1.82
+    Median N_eff: 1.88
+    Min N_eff: 1.00
+    Max N_eff: 3.52
+
+  PL_Mid_AD_High_2d_euc:
+    Mean N_eff: 1.89
+    Median N_eff: 1.97
+    Min N_eff: 1.00
+    Max N_eff: 3.08
+
+  PL_High_AD_Low_2d_euc:
+    Mean N_eff: 1.36
+    Median N_eff: 1.06
+    Min N_eff: 1.00
+    Max N_eff: 2.93
+
+  PL_High_AD_Mid_2d_euc:
+    Mean N_eff: 1.43
+    Median N_eff: 1.10
+    Min N_eff: 1.00
+    Max N_eff: 2.65
+
+  PL_High_AD_High_2d_euc:
+    Mean N_eff: 1.19
+    Median N_eff: 1.00
+    Min N_eff: 1.00
+    Max N_eff: 2.02
+
+
+======================================================================
+Selected Representative UEs - Detailed Statistics:
+======================================================================
+
+PL_Low_AD_Low_2d_euc:
+  Target: Range=[3.6, 4.2], Center=3.90
+  Selected: N=100, Mean=3.03, Std=0.46
+  Range: [1.84, 3.81]
+  In Target Range: 7/100 (7%)
+  Closest to Center: UE0724 (N_eff=3.81, Δ=0.09)
+
+PL_Low_AD_Mid_2d_euc:
+  Target: Range=[3.3, 3.9], Center=3.60
+  Selected: N=64, Mean=3.20, Std=0.39
+  Range: [2.37, 3.90]
+  In Target Range: 28/64 (44%)
+  Closest to Center: UE0567 (N_eff=3.61, Δ=0.01)
+
+PL_Low_AD_High_2d_euc:
+  Target: Range=[3.0, 3.6], Center=3.30
+  Selected: N=40, Mean=3.03, Std=0.36
+  Range: [2.28, 3.74]
+  In Target Range: 21/40 (52%)
+  Closest to Center: UE0682 (N_eff=3.30, Δ=0.00)
+
+PL_Mid_AD_Low_2d_euc:
+  Target: Range=[2.7, 3.3], Center=3.00
+  Selected: N=47, Mean=1.51, Std=0.54
+  Range: [1.00, 2.82]
+  In Target Range: 1/47 (2%)
+  Closest to Center: UE0816 (N_eff=2.82, Δ=0.18)
+
+PL_Mid_AD_Mid_2d_euc:
+  Target: Range=[2.4, 3.0], Center=2.70
+  Selected: N=64, Mean=1.82, Std=0.56
+  Range: [1.00, 3.52]
+  In Target Range: 8/64 (12%)
+  Closest to Center: UE0014 (N_eff=2.77, Δ=0.07)
+
+PL_Mid_AD_High_2d_euc:
+  Target: Range=[1.2, 1.8], Center=1.50
+  Selected: N=91, Mean=1.89, Std=0.54
+  Range: [1.00, 3.08]
+  In Target Range: 17/91 (19%)
+  Closest to Center: UE1011 (N_eff=1.53, Δ=0.03)
+
+PL_High_AD_Low_2d_euc:
+  Target: Range=[1.2, 1.4], Center=1.30
+  Selected: N=57, Mean=1.36, Std=0.54
+  Range: [1.00, 2.93]
+  In Target Range: 1/57 (2%)
+  Closest to Center: UE1061 (N_eff=1.29, Δ=0.01)
+
+PL_High_AD_Mid_2d_euc:
+  Target: Range=[1.1, 1.3], Center=1.20
+  Selected: N=76, Mean=1.43, Std=0.48
+  Range: [1.00, 2.65]
+  In Target Range: 3/76 (4%)
+  Closest to Center: UE1064 (N_eff=1.25, Δ=0.05)
+
+PL_High_AD_High_2d_euc:
+  Target: Range=[1.0, 1.2], Center=1.10
+  Selected: N=73, Mean=1.19, Std=0.35
+  Range: [1.00, 2.02]
+  In Target Range: 55/73 (75%)
+  Closest to Center: UE0399 (N_eff=1.10, Δ=0.00)

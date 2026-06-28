@@ -1,0 +1,58 @@
+======================================================================
+Angular Density Metric Comparison
+======================================================================
+
+Case Distribution by Metric:
+----------------------------------------------------------------------
+
+rho_azi:
+  PL_Low_AD_Low_azi                       :  101 UEs
+  PL_Low_AD_Mid_azi                       :   63 UEs
+  PL_Low_AD_High_azi                      :   40 UEs
+  PL_Mid_AD_Low_azi                       :   45 UEs
+  PL_Mid_AD_Mid_azi                       :   65 UEs
+  PL_Mid_AD_High_azi                      :   92 UEs
+  PL_High_AD_Low_azi                      :   58 UEs
+  PL_High_AD_Mid_azi                      :   76 UEs
+  PL_High_AD_High_azi                     :   72 UEs
+
+rho_zen:
+  PL_Low_AD_Low_zen                       :   52 UEs
+  PL_Low_AD_Mid_zen                       :   73 UEs
+  PL_Low_AD_High_zen                      :   79 UEs
+  PL_Mid_AD_Low_zen                       :   71 UEs
+  PL_Mid_AD_Mid_zen                       :   71 UEs
+  PL_Mid_AD_High_zen                      :   60 UEs
+  PL_High_AD_Low_zen                      :   81 UEs
+  PL_High_AD_Mid_zen                      :   60 UEs
+  PL_High_AD_High_zen                     :   65 UEs
+
+rho_2d_euc:
+  PL_Low_AD_Low_2d_euc                    :  100 UEs
+  PL_Low_AD_Mid_2d_euc                    :   64 UEs
+  PL_Low_AD_High_2d_euc                   :   40 UEs
+  PL_Mid_AD_Low_2d_euc                    :   47 UEs
+  PL_Mid_AD_Mid_2d_euc                    :   64 UEs
+  PL_Mid_AD_High_2d_euc                   :   91 UEs
+  PL_High_AD_Low_2d_euc                   :   57 UEs
+  PL_High_AD_Mid_2d_euc                   :   76 UEs
+  PL_High_AD_High_2d_euc                  :   73 UEs
+
+======================================================================
+N_eff Comparison by PL Level (across metrics):
+----------------------------------------------------------------------
+
+PL_Low:
+  rho_azi        : Mean N_eff = 3.08 (Median: 3.16)
+  rho_zen        : Mean N_eff = 3.08 (Median: 3.16)
+  rho_2d_euc     : Mean N_eff = 3.08 (Median: 3.16)
+
+PL_Mid:
+  rho_azi        : Mean N_eff = 1.78 (Median: 1.88)
+  rho_zen        : Mean N_eff = 1.78 (Median: 1.88)
+  rho_2d_euc     : Mean N_eff = 1.78 (Median: 1.88)
+
+PL_High:
+  rho_azi        : Mean N_eff = 1.33 (Median: 1.00)
+  rho_zen        : Mean N_eff = 1.33 (Median: 1.00)
+  rho_2d_euc     : Mean N_eff = 1.33 (Median: 1.00)

@@ -1,0 +1,101 @@
+
+# Docker 권한 확인 결과 (1 Docker 클라이언트가 데몬과 통신 가능, 2 이미지 풀링 및 컨테이너 실행 권한 확보)
+super@super:~$ docker run hello-world
+Unable to find image 'hello-world:latest' locally
+latest: Pulling from library/hello-world
+17eec7bbc9d7: Pull complete 
+Digest: sha256:a0dfb02aac212703bfcb339d77d47ec32c8706ff250850ecc0e19c8737b18567
+Status: Downloaded newer image for hello-world:latest
+
+Hello from Docker!
+This message shows that your installation appears to be working correctly.
+
+To generate this message, Docker took the following steps:
+ 1. The Docker client contacted the Docker daemon.
+ 2. The Docker daemon pulled the "hello-world" image from the Docker Hub.
+    (amd64)
+ 3. The Docker daemon created a new container from that image which runs the
+    executable that produces the output you are currently reading.
+ 4. The Docker daemon streamed that output to the Docker client, which sent it
+    to your terminal.
+
+To try something more ambitious, you can run an Ubuntu container with:
+ $ docker run -it ubuntu bash
+
+Share images, automate workflows, and more with a free Docker ID:
+ https://hub.docker.com/
+
+For more examples and ideas, visit:
+ https://docs.docker.com/get-started/
+
+
+# 올바른 CUDA 이미지 태그로 테스트
+docker run --rm --gpus all nvidia/cuda:12.3.2-base-ubuntu22.04 nvidia-smi
+
+# result
+super@super:~$ docker run --rm --gpus all nvidia/cuda:12.3.2-base-ubuntu22.04 nvidia-smi
+Unable to find image 'nvidia/cuda:12.3.2-base-ubuntu22.04' locally
+12.3.2-base-ubuntu22.04: Pulling from nvidia/cuda
+01007420e9b0: Pull complete 
+bfc08b17629d: Pull complete 
+86fc789646b5: Pull complete 
+6b62141c2a21: Pull complete 
+e0e30e504698: Pull complete 
+Digest: sha256:8cecfe099315f73127d6d5cc43fce32c7ffff4ea0460eefac48f2b7d811ce857
+Status: Downloaded newer image for nvidia/cuda:12.3.2-base-ubuntu22.04
+Fri Aug 29 08:54:38 2025       
++-----------------------------------------------------------------------------------------+
+| NVIDIA-SMI 550.163.01             Driver Version: 550.163.01     CUDA Version: 12.4     |
+|-----------------------------------------+------------------------+----------------------+
+| GPU  Name                 Persistence-M | Bus-Id          Disp.A | Volatile Uncorr. ECC |
+| Fan  Temp   Perf          Pwr:Usage/Cap |           Memory-Usage | GPU-Util  Compute M. |
+|                                         |                        |               MIG M. |
+|=========================================+========================+======================|
+|   0  NVIDIA L40S                    Off |   00000000:31:00.0 Off |                    0 |
+| N/A   28C    P8             24W /  350W |      11MiB /  46068MiB |      0%      Default |
+|                                         |                        |                  N/A |
++-----------------------------------------+------------------------+----------------------+
+                                                                                         
++-----------------------------------------------------------------------------------------+
+| Processes:                                                                              |
+|  GPU   GI   CI        PID   Type   Process name                              GPU Memory |
+|        ID   ID                                                               Usage      |
+|=========================================================================================|
++-----------------------------------------------------------------------------------------+
+super@super:~$ 
+
+# adduser, usermod, and sshd_config
+super@super:~$ sudo adduser dclcom55
+Adding user `dclcom55' ...
+Adding new group `dclcom55' (1001) ...
+Adding new user `dclcom55' (1001) with group `dclcom55' ...
+Creating home directory `/home/dclcom55' ...
+Copying files from `/etc/skel' ...
+New password: 
+BAD PASSWORD: The password is shorter than 8 characters
+Retype new password: 
+Sorry, passwords do not match.
+New password: 
+BAD PASSWORD: The password is shorter than 8 characters
+Retype new password: 
+passwd: password updated successfully
+Changing the user information for dclcom55
+Enter the new value, or press ENTER for the default
+	Full Name []: 
+	Room Number []: 
+	Work Phone []: 
+	Home Phone []: 
+	Other []: 
+Is the information correct? [Y/n] y
+super@super:~$ 
+super@super:~$ sudo usermod -aG sudo,docker dclcom55
+super@super:~$ groups
+super adm cdrom sudo dip plugdev lpadmin lxd sambashare
+super@super:~$ groups dclcom55
+dclcom55 : dclcom55 sudo docker
+super@super:~$ sudo nano /etc/ssh/sshd_config
+super@super:~$ sudo systemctl restart sshd
+super@super:~$ 
+
+
+

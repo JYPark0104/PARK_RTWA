@@ -1,0 +1,38 @@
+======================================================================
+9-Case UE Classification Summary
+======================================================================
+
+Angular Density Metric: rho_azi
+
+PL Classification (Path Loss perspective):
+  - Low: 낮은 경로 손실 (절댓값 작음, 신호 강함, cell center)
+  - Mid: 중간 경로 손실
+  - High: 높은 경로 손실 (절댓값 큼, 신호 약함, cell edge)
+
+Total UEs: 612
+
+Case Distribution:
+----------------------------------------------------------------------
+  PL_Low_AD_Low_azi                       :  101 UEs
+  PL_Low_AD_Mid_azi                       :   63 UEs
+  PL_Low_AD_High_azi                      :   40 UEs
+  PL_Mid_AD_Low_azi                       :   45 UEs
+  PL_Mid_AD_Mid_azi                       :   65 UEs
+  PL_Mid_AD_High_azi                      :   92 UEs
+  PL_High_AD_Low_azi                      :   58 UEs
+  PL_High_AD_Mid_azi                      :   76 UEs
+  PL_High_AD_High_azi                     :   72 UEs
+
+Case Statistics (Mean):
+----------------------------------------------------------------------
+Case                                        PL (dB)         AD  SNR_DL (dB)   N_eff_BS
+----------------------------------------------------------------------
+PL_Low_AD_Low_azi                            -70.83     0.1739        52.17       3.04
+PL_Low_AD_Mid_azi                            -71.46     1.1643        51.54       3.19
+PL_Low_AD_High_azi                           -72.95     5.8790        50.05       3.03
+PL_Mid_AD_Low_azi                           -102.12     0.2612        20.88       1.47
+PL_Mid_AD_Mid_azi                            -96.26     1.1496        26.74       1.83
+PL_Mid_AD_High_azi                           -93.31     4.8591        29.69       1.90
+PL_High_AD_Low_azi                          -114.61     0.2947         8.39       1.33
+PL_High_AD_Mid_azi                          -114.39     1.1755         8.61       1.45
+PL_High_AD_High_azi                         -114.64     5.0852         8.36       1.19

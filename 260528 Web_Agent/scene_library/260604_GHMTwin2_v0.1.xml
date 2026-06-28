@@ -1,0 +1,13 @@
+<scene version="2.1.0">
+    <integrator type="path">
+        <integer name="max_depth" value="5"/>
+    </integrator>
+    <bsdf type="diffuse" id="mat-itu_concrete">
+        <rgb name="reflectance" value="0.5, 0.5, 0.5"/>
+    </bsdf>
+    <shape type="ply" id="mesh_2dgs_planar">
+        <string name="filename" value="260604_GHMTwin2_v0.1.ply"/>
+        <boolean name="face_normals" value="true"/>
+        <ref id="mat-itu_concrete"/>
+    </shape>
+</scene>

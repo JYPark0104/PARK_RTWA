@@ -1,0 +1,40 @@
+# Web Agent 백엔드 의존성
+# 작성일: 2026-05-28
+# 호스트: dclcom61 (RTX 5090 × 2, CUDA toolkit 12.8 + driver 580.95)
+# Python: 3.10
+# venv: 260528 Web_Agent/.venv-webagent/
+#
+# 설치 검증 (2026-05-28):
+# - sionna 1.2.2 (plan은 1.0.2 가정이었으나 최신 사용, RT API 호환)
+# - tensorflow 2.21.0 (RTX 5090 Blackwell 지원)
+# - mitsuba 3.8.0 (cuda_ad_* variants 사용 가능)
+# - trimesh 4.12.2 (+ embreex 4.4.0 자동 설치, pyembree 불필요)
+#
+# GPU 활성화 노트:
+# - libcuda.so는 /usr/local/cuda-12.8/targets/x86_64-linux/lib/ 또는 stubs에 있음
+# - LD_LIBRARY_PATH 설정 필요. uvicorn 실행 전:
+#   export LD_LIBRARY_PATH=/usr/local/cuda-12.8/targets/x86_64-linux/lib:$LD_LIBRARY_PATH
+
+# Sionna RT stack
+tensorflow>=2.21
+sionna>=1.2
+mitsuba>=3.8
+drjit>=1.3
+
+# Scientific
+numpy>=1.26,<3
+scipy>=1.15
+matplotlib>=3.7
+pandas>=2.0
+
+# Mesh / scene
+trimesh[easy]>=4.0   # embreex 포함, pyembree 불필요
+geopandas>=1.0       # 원본 P1A import 의존
+
+# 백엔드
+fastapi>=0.110
+uvicorn[standard]>=0.27
+python-multipart>=0.0.9
+websockets>=12
+pydantic>=2.5
+aiofiles>=23

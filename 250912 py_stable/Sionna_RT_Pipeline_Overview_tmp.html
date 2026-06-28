@@ -1,0 +1,514 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Sionna_RT_Pipeline_Overview.md</title>
+<meta http-equiv="Content-type" content="text/html;charset=UTF-8">
+
+<style>
+/* https://github.com/microsoft/vscode/blob/master/extensions/markdown-language-features/media/markdown.css */
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
+body {
+	font-family: var(--vscode-markdown-font-family, -apple-system, BlinkMacSystemFont, "Segoe WPC", "Segoe UI", "Ubuntu", "Droid Sans", sans-serif);
+	font-size: var(--vscode-markdown-font-size, 14px);
+	padding: 0 26px;
+	line-height: var(--vscode-markdown-line-height, 22px);
+	word-wrap: break-word;
+}
+
+#code-csp-warning {
+	position: fixed;
+	top: 0;
+	right: 0;
+	color: white;
+	margin: 16px;
+	text-align: center;
+	font-size: 12px;
+	font-family: sans-serif;
+	background-color:#444444;
+	cursor: pointer;
+	padding: 6px;
+	box-shadow: 1px 1px 1px rgba(0,0,0,.25);
+}
+
+#code-csp-warning:hover {
+	text-decoration: none;
+	background-color:#007acc;
+	box-shadow: 2px 2px 2px rgba(0,0,0,.25);
+}
+
+body.scrollBeyondLastLine {
+	margin-bottom: calc(100vh - 22px);
+}
+
+body.showEditorSelection .code-line {
+	position: relative;
+}
+
+body.showEditorSelection .code-active-line:before,
+body.showEditorSelection .code-line:hover:before {
+	content: "";
+	display: block;
+	position: absolute;
+	top: 0;
+	left: -12px;
+	height: 100%;
+}
+
+body.showEditorSelection li.code-active-line:before,
+body.showEditorSelection li.code-line:hover:before {
+	left: -30px;
+}
+
+.vscode-light.showEditorSelection .code-active-line:before {
+	border-left: 3px solid rgba(0, 0, 0, 0.15);
+}
+
+.vscode-light.showEditorSelection .code-line:hover:before {
+	border-left: 3px solid rgba(0, 0, 0, 0.40);
+}
+
+.vscode-light.showEditorSelection .code-line .code-line:hover:before {
+	border-left: none;
+}
+
+.vscode-dark.showEditorSelection .code-active-line:before {
+	border-left: 3px solid rgba(255, 255, 255, 0.4);
+}
+
+.vscode-dark.showEditorSelection .code-line:hover:before {
+	border-left: 3px solid rgba(255, 255, 255, 0.60);
+}
+
+.vscode-dark.showEditorSelection .code-line .code-line:hover:before {
+	border-left: none;
+}
+
+.vscode-high-contrast.showEditorSelection .code-active-line:before {
+	border-left: 3px solid rgba(255, 160, 0, 0.7);
+}
+
+.vscode-high-contrast.showEditorSelection .code-line:hover:before {
+	border-left: 3px solid rgba(255, 160, 0, 1);
+}
+
+.vscode-high-contrast.showEditorSelection .code-line .code-line:hover:before {
+	border-left: none;
+}
+
+img {
+	max-width: 100%;
+	max-height: 100%;
+}
+
+a {
+	text-decoration: none;
+}
+
+a:hover {
+	text-decoration: underline;
+}
+
+a:focus,
+input:focus,
+select:focus,
+textarea:focus {
+	outline: 1px solid -webkit-focus-ring-color;
+	outline-offset: -1px;
+}
+
+hr {
+	border: 0;
+	height: 2px;
+	border-bottom: 2px solid;
+}
+
+h1 {
+	padding-bottom: 0.3em;
+	line-height: 1.2;
+	border-bottom-width: 1px;
+	border-bottom-style: solid;
+}
+
+h1, h2, h3 {
+	font-weight: normal;
+}
+
+table {
+	border-collapse: collapse;
+}
+
+table > thead > tr > th {
+	text-align: left;
+	border-bottom: 1px solid;
+}
+
+table > thead > tr > th,
+table > thead > tr > td,
+table > tbody > tr > th,
+table > tbody > tr > td {
+	padding: 5px 10px;
+}
+
+table > tbody > tr + tr > td {
+	border-top: 1px solid;
+}
+
+blockquote {
+	margin: 0 7px 0 5px;
+	padding: 0 16px 0 10px;
+	border-left-width: 5px;
+	border-left-style: solid;
+}
+
+code {
+	font-family: Menlo, Monaco, Consolas, "Droid Sans Mono", "Courier New", monospace, "Droid Sans Fallback";
+	font-size: 1em;
+	line-height: 1.357em;
+}
+
+body.wordWrap pre {
+	white-space: pre-wrap;
+}
+
+pre:not(.hljs),
+pre.hljs code > div {
+	padding: 16px;
+	border-radius: 3px;
+	overflow: auto;
+}
+
+pre code {
+	color: var(--vscode-editor-foreground);
+	tab-size: 4;
+}
+
+/** Theming */
+
+.vscode-light pre {
+	background-color: rgba(220, 220, 220, 0.4);
+}
+
+.vscode-dark pre {
+	background-color: rgba(10, 10, 10, 0.4);
+}
+
+.vscode-high-contrast pre {
+	background-color: rgb(0, 0, 0);
+}
+
+.vscode-high-contrast h1 {
+	border-color: rgb(0, 0, 0);
+}
+
+.vscode-light table > thead > tr > th {
+	border-color: rgba(0, 0, 0, 0.69);
+}
+
+.vscode-dark table > thead > tr > th {
+	border-color: rgba(255, 255, 255, 0.69);
+}
+
+.vscode-light h1,
+.vscode-light hr,
+.vscode-light table > tbody > tr + tr > td {
+	border-color: rgba(0, 0, 0, 0.18);
+}
+
+.vscode-dark h1,
+.vscode-dark hr,
+.vscode-dark table > tbody > tr + tr > td {
+	border-color: rgba(255, 255, 255, 0.18);
+}
+
+</style>
+
+<style>
+/* Tomorrow Theme */
+/* http://jmblog.github.com/color-themes-for-google-code-highlightjs */
+/* Original theme - https://github.com/chriskempson/tomorrow-theme */
+
+/* Tomorrow Comment */
+.hljs-comment,
+.hljs-quote {
+	color: #8e908c;
+}
+
+/* Tomorrow Red */
+.hljs-variable,
+.hljs-template-variable,
+.hljs-tag,
+.hljs-name,
+.hljs-selector-id,
+.hljs-selector-class,
+.hljs-regexp,
+.hljs-deletion {
+	color: #c82829;
+}
+
+/* Tomorrow Orange */
+.hljs-number,
+.hljs-built_in,
+.hljs-builtin-name,
+.hljs-literal,
+.hljs-type,
+.hljs-params,
+.hljs-meta,
+.hljs-link {
+	color: #f5871f;
+}
+
+/* Tomorrow Yellow */
+.hljs-attribute {
+	color: #eab700;
+}
+
+/* Tomorrow Green */
+.hljs-string,
+.hljs-symbol,
+.hljs-bullet,
+.hljs-addition {
+	color: #718c00;
+}
+
+/* Tomorrow Blue */
+.hljs-title,
+.hljs-section {
+	color: #4271ae;
+}
+
+/* Tomorrow Purple */
+.hljs-keyword,
+.hljs-selector-tag {
+	color: #8959a8;
+}
+
+.hljs {
+	display: block;
+	overflow-x: auto;
+	color: #4d4d4c;
+	padding: 0.5em;
+}
+
+.hljs-emphasis {
+	font-style: italic;
+}
+
+.hljs-strong {
+	font-weight: bold;
+}
+</style>
+
+<style>
+/*
+ * Markdown PDF CSS
+ */
+
+ body {
+	font-family: -apple-system, BlinkMacSystemFont, "Segoe WPC", "Segoe UI", "Ubuntu", "Droid Sans", sans-serif, "Meiryo";
+	padding: 0 12px;
+}
+
+pre {
+	background-color: #f8f8f8;
+	border: 1px solid #cccccc;
+	border-radius: 3px;
+	overflow-x: auto;
+	white-space: pre-wrap;
+	overflow-wrap: break-word;
+}
+
+pre:not(.hljs) {
+	padding: 23px;
+	line-height: 19px;
+}
+
+blockquote {
+	background: rgba(127, 127, 127, 0.1);
+	border-color: rgba(0, 122, 204, 0.5);
+}
+
+.emoji {
+	height: 1.4em;
+}
+
+code {
+	font-size: 14px;
+	line-height: 19px;
+}
+
+/* for inline code */
+:not(pre):not(.hljs) > code {
+	color: #C9AE75; /* Change the old color so it seems less like an error */
+	font-size: inherit;
+}
+
+/* Page Break : use <div class="page"/> to insert page break
+-------------------------------------------------------- */
+.page {
+	page-break-after: always;
+}
+
+</style>
+
+<script src="https://unpkg.com/mermaid/dist/mermaid.min.js"></script>
+</head>
+<body>
+  <script>
+    mermaid.initialize({
+      startOnLoad: true,
+      theme: document.body.classList.contains('vscode-dark') || document.body.classList.contains('vscode-high-contrast')
+          ? 'dark'
+          : 'default'
+    });
+  </script>
+<h1 id="sionna-rt-%EA%B8%B0%EB%B0%98-%EC%B1%84%EB%84%90-%EB%AA%A8%EB%8D%B8%EB%A7%81-%ED%8C%8C%EC%9D%B4%ED%94%84%EB%9D%BC%EC%9D%B8-p1-p3-%EA%B0%9C%EC%9A%94">Sionna RT 기반 채널 모델링 파이프라인 (P1-P3) 개요</h1>
+<p>이 문서는 3D 환경 시뮬레이션부터 채널 공분산 행렬(CCM) 생성까지 이어지는 Sionna RT 기반 파이프라인의 전체 구조와 데이터 흐름을 설명합니다. 각 단계는 독립적인 Python 스크립트(P1, P2, P3)로 구성되어 있으며, 설정 파일을 통해 유기적으로 연동됩니다.</p>
+<h2 id="%EC%A0%84%EC%B2%B4-%ED%8C%8C%EC%9D%B4%ED%94%84%EB%9D%BC%EC%9D%B8-%EA%B5%AC%EC%A1%B0">전체 파이프라인 구조</h2>
+<p>파이프라인은 P1, P2, P3의 세 단계로 구성되며, 각 단계의 출력은 다음 단계의 입력으로 사용되는 직선적인 데이터 흐름을 가집니다.</p>
+<pre class="hljs"><code><div>[P1: 3D Scene → Ray Data]
+  ├─ 입력: 3D Scene (.xml), 시뮬레이션 설정 (P1_Config)
+  ├─ 처리: P1_RT_to_Rays_250806v4.py
+  │   └─ Ray Tracing 및 TR 38.901 통계 모델 적용
+  └─ 출력: 통계적 레이 데이터 (.npy) → (Sionna_RT_Results/)
+      │
+      ▼
+[P2: Ray Data → OFDM Channel]
+  ├─ 입력: 통계적 레이 데이터 (P1 출력)
+  ├─ 처리: P2_Rays_to_OFDM_Ch_250809v2.py
+  │   └─ 안테나 어레이 및 도플러 효과 적용
+  └─ 출력: 시변 OFDM 채널 (.npy) → (OFDM_Ch_Results/)
+      │
+      ▼
+[P3: OFDM Channel → Channel Statistics]
+  ├─ 입력: 시변 OFDM 채널 (P2 출력)
+  ├─ 처리: P3_OFDM_Ch_to_ChMeanCov_250817v2.py
+  │   └─ 채널 평균 및 공분산 계산/보정
+  └─ 출력: 채널 공분산 행렬(CCM) 및 채널 평균 (.npz) → (ChMeanCov_Results/)
+</div></code></pre>
+<hr>
+<h2 id="1-p1-3d-%ED%99%98%EA%B2%BD-%EA%B8%B0%EB%B0%98-%EC%A0%84%ED%8C%8C-%EA%B2%BD%EB%A1%9C-%EB%B0%8F-%ED%86%B5%EA%B3%84%EC%A0%81-%EB%A0%88%EC%9D%B4-%EC%83%9D%EC%84%B1-p1rttorays250806v4py">1. P1: 3D 환경 기반 전파 경로 및 통계적 레이 생성 (<code>P1_RT_to_Rays_250806v4.py</code>)</h2>
+<h3 id="11-%EB%AA%A9%EC%A0%81">1.1. 목적</h3>
+<p>3D 도시 환경 모델(.xml)을 기반으로 Sionna RT 엔진을 사용하여 물리적인 전파 경로(Path)를 계산하고, 이를 3GPP TR 38.901 표준에 따라 통계적인 레이(Ray) 데이터로 변환하여 저장합니다.</p>
+<h3 id="12-%EC%A3%BC%EC%9A%94-%EC%9E%85%EB%A0%A5">1.2. 주요 입력</h3>
+<ul>
+<li><strong>3D Scene 파일</strong>: <code>Jonggak.xml</code> (Mitsuba3 렌더러 형식)</li>
+<li><strong>설정 파일</strong>: <code>P1_Config</code> 클래스 내 파라미터
+<ul>
+<li><code>AREA_INDICES</code>: 시뮬레이션을 수행할 지역 ID 목록</li>
+<li><code>FREQUENCY_CONFIGS</code>: 시뮬레이션 주파수 (GHz) 목록</li>
+<li><code>AREA_CONFIGS</code>: 지역별 TX/RX 위치 및 그리드 설정</li>
+<li><code>ENABLE_RAY_SAVING</code>: 레이 데이터 저장 여부</li>
+</ul>
+</li>
+</ul>
+<h3 id="13-%ED%86%B5%ED%95%A9-%EC%84%A4%EC%A0%95-p1config">1.3. 통합 설정 (<code>P1_Config</code>)</h3>
+<p><code>P1_Config</code> 클래스는 전체 파이프라인의 시작점으로서, 모든 시뮬레이션 시나리오를 정의하고 제어하는 중앙 관제 센터 역할을 합니다. 사용자는 이 클래스의 속성을 변경하여 원하는 실험 환경을 손쉽게 구성할 수 있습니다.</p>
+<ul>
+<li><strong>시나리오 제어</strong>: <code>AREA_INDICES</code>와 <code>FREQUENCY_CONFIGS</code>의 조합으로 다중 지역, 다중 주파수 시뮬레이션을 자동으로 수행합니다. 예를 들어, 2개의 Area와 3개의 주파수를 설정하면 총 6개의 시나리오가 순차적으로 실행됩니다.</li>
+<li><strong>T/RX 배치</strong>: <code>AREA_CONFIGS</code> 딕셔너리를 통해 각 Area별로 서로 다른 송신기(TX) 위치와 수신기(RX) 그리드 배치를 정의할 수 있어, 다양한 커버리지 분석이 가능합니다.</li>
+<li><strong>파이프라인 제어</strong>: <code>ENABLE_PATH_SAVING</code>, <code>ENABLE_RAY_GENERATION</code> 등의 플래그를 통해 Ray Tracing만 수행할지, 통계적 레이 생성까지 진행할지를 선택할 수 있습니다.</li>
+</ul>
+<h3 id="14-%ED%95%B5%EC%8B%AC-%EB%A9%94%EC%84%9C%EB%93%9C">1.4. 핵심 메서드</h3>
+<ul>
+<li><strong><code>Pipeline.execute_main()</code></strong>: 파이프라인의 메인 진입점으로, <code>P1_Config</code> 설정을 읽어 다중 Area, 다중 주파수 루프를 실행하고, 각 시나리오에 대해 <code>process_frequency_memory_only()</code>를 호출합니다.</li>
+<li><strong><code>PathRT.trace_rays()</code></strong>: Sionna RT의 <code>PathSolver</code>를 호출하여 3D 씬과 현재 설정된 주파수를 기반으로 물리적 전파 경로를 계산하는 가장 핵심적인 RT 연산 부분입니다.</li>
+<li><strong><code>RayGen.subrayProposed()</code></strong>: 계산된 단일 물리 경로(Cluster)를 입력받아, TR 38.901 표준의 통계 모델(지연, 각도 확산)을 적용하여 다수의 통계적 레이(Sub-ray)를 생성합니다.</li>
+<li><strong><code>DataIO.save_rays_v4()</code></strong>: 생성된 최종 레이 데이터를 <code>P1_Config</code>에 정의된 명명 규칙에 따라 <code>.npy</code> 파일로 저장합니다.</li>
+</ul>
+<h3 id="15-%EC%A3%BC%EC%9A%94-%EC%B6%9C%EB%A0%A5">1.5. 주요 출력</h3>
+<ul>
+<li><strong>레이 데이터 파일 (<code>.npy</code>)</strong>:
+<ul>
+<li><code>power</code>: 레이별 수신 전력</li>
+<li><code>tau</code>: 레이별 지연 시간</li>
+<li><code>theta_r</code>, <code>phi_r</code>: 도착 각도 (Zenith, Azimuth)</li>
+<li><code>theta_t</code>, <code>phi_t</code>: 출발 각도 (Zenith, Azimuth)</li>
+<li>저장 위치: <code>Sionna_RT_Results/</code></li>
+</ul>
+</li>
+</ul>
+<hr>
+<h2 id="2-p2-%EB%A0%88%EC%9D%B4-%EB%8D%B0%EC%9D%B4%ED%84%B0%EB%A5%BC-ofdm-%EC%B1%84%EB%84%90%EB%A1%9C-%EB%B3%80%ED%99%98-p2raystoofdmch250809v2py">2. P2: 레이 데이터를 OFDM 채널로 변환 (<code>P2_Rays_to_OFDM_Ch_250809v2.py</code>)</h2>
+<h3 id="21-%EB%AA%A9%EC%A0%81">2.1. 목적</h3>
+<p>P1에서 생성된 통계적 레이 데이터를 입력받아, 안테나 어레이 특성과 사용자 이동성(도플러 효과)을 적용하여 시변(Time-Varying) MIMO-OFDM 채널 계수를 생성합니다.</p>
+<h3 id="22-%EC%A3%BC%EC%9A%94-%EC%9E%85%EB%A0%A5">2.2. 주요 입력</h3>
+<ul>
+<li><strong>P1 레이 데이터 (<code>.npy</code>)</strong>: <code>Sionna_RT_Results/</code> 폴더의 모든 레이 데이터 파일</li>
+<li><strong>설정 파일</strong>: <code>P2_Config</code> 클래스 내 파라미터
+<ul>
+<li><code>OFDM_FFT</code>, <code>OFDM_SCS</code>: OFDM 시스템 파라미터</li>
+<li><code>TX_Array</code>, <code>RX_Array</code>: 송수신 안테나 어레이 구성 (패널, 소자 개수, 간격 등)</li>
+<li><code>Topology_Statistics</code>: 사용자 이동성(속도, 방향) 통계 모델</li>
+</ul>
+</li>
+</ul>
+<h3 id="23-%ED%86%B5%ED%95%A9-%EC%84%A4%EC%A0%95-p2config">2.3. 통합 설정 (<code>P2_Config</code>)</h3>
+<p><code>P2_Config</code> 클래스는 P1의 출력에 의존하여 동적으로 설정을 구성하는 특징을 가집니다. P1과 P2를 분리하여 실행할 수 있도록, P1의 결과물이 저장된 폴더를 스캔하여 어떤 Area, 주파수, RX 조합을 처리해야 할지 스스로 판단합니다.</p>
+<ul>
+<li><strong>동적 시나리오 감지</strong>: <code>detect_p1_data()</code> 메서드가 <code>Sionna_RT_Results</code> 폴더를 탐색하여 파일명에 포함된 정보를 기반으로 처리해야 할 시나리오 목록(<code>area_indices</code>, <code>fcs</code>, <code>RX_indices</code>)을 자동으로 생성합니다. 이를 통해 P1의 설정 변경에 유연하게 대응합니다.</li>
+<li><strong>시스템 파라미터 정의</strong>: P1 데이터와 독립적인 OFDM 시스템, 안테나 어레이, 도플러 모델과 관련된 파라미터들을 정의합니다. 예를 들어, <code>OFDM_FFT</code>, <code>TX_Array</code> 설정은 P2에서 채널의 형태를 결정하는 중요한 요소입니다.</li>
+<li><strong>독립성</strong>: <code>P1_Config</code>를 직접 참조하지 않고, 오직 파일 기반으로만 P1과 데이터를 주고받기 때문에 P1과 P2 스크립트 간의 의존성이 낮아져 독립적인 실행과 테스트가 용이합니다.</li>
+</ul>
+<h3 id="24-%ED%95%B5%EC%8B%AC-%EB%A9%94%EC%84%9C%EB%93%9C">2.4. 핵심 메서드</h3>
+<ul>
+<li><strong><code>main()</code></strong>: <code>P2_Config</code>가 자동으로 감지한 Area, 주파수, RX 조합에 대한 3중 루프를 실행하며, 각 조합에 대해 채널 생성을 수행하고 결과를 저장합니다.</li>
+<li><strong><code>ChannelCoefficientsGeneratorJIN._compute_ch_mimo_ofdm_38901_static()</code></strong>: P1의 레이 데이터(각도, 지연, 전력)에 <code>TX_Array</code>, <code>RX_Array</code>에 정의된 안테나 특성(패턴, 편파, 소자 위치)을 결합하여, 도플러 효과가 적용되기 전의 <strong>정적 다중 경로 채널</strong>을 <code>delay-bin</code> 영역에서 계산합니다.</li>
+<li><strong><code>ChannelCoefficientsGeneratorJIN._apply_doppler_ch_mimo_ofdm_freq()</code></strong>: 정적 채널에 <code>Topology</code>로 모델링된 사용자 이동 속도 벡터를 적용하여 각 레이에 대한 <strong>도플러 위상 천이</strong>를 계산합니다. 이후 <code>FFT</code>를 통해 최종적으로 시간과 주파수에 따라 변하는 MIMO-OFDM 채널을 생성합니다.</li>
+</ul>
+<h3 id="25-%EC%A3%BC%EC%9A%94-%EC%B6%9C%EB%A0%A5">2.5. 주요 출력</h3>
+<ul>
+<li><strong>OFDM 채널 데이터 (<code>.npy</code>)</strong>:
+<ul>
+<li>형상(shape): <code>[num_ofdm_symbols, num_subcarriers, num_rx_antennas, num_tx_antennas]</code></li>
+<li>시변 MIMO-OFDM 채널 계수 <code>H</code> 행렬</li>
+<li>저장 위치: <code>OFDM_Ch_Results/</code></li>
+</ul>
+</li>
+</ul>
+<hr>
+<h2 id="3-p3-ofdm-%EC%B1%84%EB%84%90-%ED%86%B5%EA%B3%84-%EB%B6%84%EC%84%9D-p3ofdmchtochmeancov250817v2py">3. P3: OFDM 채널 통계 분석 (<code>P3_OFDM_Ch_to_ChMeanCov_250817v2.py</code>)</h2>
+<h3 id="31-%EB%AA%A9%EC%A0%81">3.1. 목적</h3>
+<p>P2에서 생성된 시변 OFDM 채널 데이터를 입력받아, 시간-주파수 영역에 대한 통계적 평균을 계산하여 채널의 장기적인 특성인 **채널 평균(Channel Mean)**과 **채널 공분산 행렬(Channel Covariance Matrix, CCM)**을 추출합니다.</p>
+<h3 id="32-%EC%A3%BC%EC%9A%94-%EC%9E%85%EB%A0%A5">3.2. 주요 입력</h3>
+<ul>
+<li><strong>P2 OFDM 채널 데이터 (<code>.npy</code>)</strong>: <code>OFDM_Ch_Results/</code> 폴더의 모든 채널 데이터 파일</li>
+<li><strong>설정 파일</strong>: <code>P3_Config</code> 클래스 내 파라미터
+<ul>
+<li><code>sampling_ratio</code>: 통계 계산에 사용할 채널 데이터 샘플링 비율</li>
+<li><code>ccm_correction</code>: CCM이 Positive Semi-Definite(PSD) 특성을 갖도록 보정하는 알고리즘 설정</li>
+</ul>
+</li>
+</ul>
+<h3 id="33-%ED%86%B5%ED%95%A9-%EC%84%A4%EC%A0%95-p3config">3.3. 통합 설정 (<code>P3_Config</code>)</h3>
+<p><code>P3_Config</code> 클래스는 <code>P2_Config</code>와 유사하게, 이전 단계의 출력 폴더(<code>OFDM_Ch_Results</code>)를 스캔하여 처리 대상을 동적으로 결정합니다. 이를 통해 다중 Area 환경에서 생성된 복잡한 결과물들을 체계적으로 분석하고 관리합니다.</p>
+<ul>
+<li><strong>동적 Area-RX 매핑</strong>: <code>detect_area_rx_mapping()</code> 메서드가 P2의 출력 파일명을 정규식으로 분석하여, 어떤 Area에 어떤 RX들이 포함되어 있는지를 파악하고 <code>area_rx_mapping</code> 딕셔너리를 생성합니다. 이는 다중 사용자 CCM을 구성하는 데 필수적인 정보입니다.</li>
+<li><strong>통계 및 검증 설정</strong>: CCM 계산에 필요한 <code>sampling_ratio</code> 뿐만 아니라, <code>ccm_correction</code>(CCM 보정 알고리즘 파라미터), <code>validation_config</code>(pMSE 기반 결과 검증 설정) 등 후처리 및 분석에 관련된 모든 설정을 중앙에서 관리합니다.</li>
+<li><strong>실행 모드 제어</strong>: <code>execution_mode</code> 플래그 ('save' 또는 'validation')를 통해 CCM을 실제로 저장할지, 아니면 랜덤 샘플링의 일관성을 검증하는 분석만 수행할지를 결정할 수 있어, 코드 변경 없이 다양한 목적의 실행이 가능합니다.</li>
+</ul>
+<h3 id="34-%ED%95%B5%EC%8B%AC-%EB%A9%94%EC%84%9C%EB%93%9C">3.4. 핵심 메서드</h3>
+<ul>
+<li><strong><code>CCM_BlockEngine.process_area_ccm()</code></strong>: 특정 Area에 속한 모든 RX에 대해 CCM 계산을 총괄하는 메서드입니다. 내부적으로 <code>_calc_R_ii_block</code>과 <code>_calc_R_ij_block</code>을 호출하여 모든 블록을 계산합니다.</li>
+<li><strong><code>CCM_BlockEngine._calc_R_ii_block()</code></strong>: 단일 사용자의 시변 채널 데이터를 입력받아, 시간/주파수 평균을 통해 <strong>자기 공분산(R_ii)</strong> 행렬과 채널 평균, 경로 손실, K-factor 등의 통계치를 계산합니다.</li>
+<li><strong><code>CCM_BlockEngine._apply_ccm_correction()</code></strong>: 물리적으로 유효한 공분산 행렬이 만족해야 하는 3가지 조건(Positive Semi-Definite, Unit Diagonal, Hermitian)을 보장하는 핵심 보정 알고리즘입니다. 반복 과정에서 보정 강도를 3단계로 점진적으로 제어하여 원본 행렬의 왜곡을 최소화(NMSE -30dB 이하)하며 안정적인 행렬로 수렴시킵니다.</li>
+<li><strong><code>CCM_BlockManager.build_area_ccm()</code></strong>: <code>CCM_BlockEngine</code>이 계산한 개별 <code>R_ii</code>, <code>R_ij</code> 블록들을 마치 레고처럼 조립하여 해당 Area의 모든 사용자를 포함하는 거대한 <strong>전체 CCM</strong>을 최종적으로 구성합니다.</li>
+</ul>
+<h3 id="35-%EC%A3%BC%EC%9A%94-%EC%B6%9C%EB%A0%A5">3.5. 주요 출력</h3>
+<ul>
+<li><strong>채널 통계 데이터 (<code>.npz</code>)</strong>:
+<ul>
+<li><code>ccm</code>: 최종 채널 공분산 행렬</li>
+<li><code>stats_rx{id}_ch_mean</code>: 사용자별 채널 평균</li>
+<li><code>stats_rx{id}_pathloss</code>: 사용자별 경로 손실</li>
+<li><code>stats_rx{id}_k_factor</code>: 사용자별 K-Factor</li>
+<li>저장 위치: <code>ChMeanCov_Results/</code></li>
+</ul>
+</li>
+</ul>
+
+</body>
+</html>
