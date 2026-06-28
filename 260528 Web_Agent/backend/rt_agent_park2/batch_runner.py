@@ -160,8 +160,14 @@ def _build_config(payload: dict, session_dir: Path, scene_xml: Path, scene_ply: 
     cfg.synthetic_array = True
 
     # 재질
-    cfg.scattering_coefficient = float(rt.get("itu_scattering_coeff", 0.7) or 0.7)
-    cfg.xpd_coefficient = float(rt.get("itu_xpd_coeff", 0.0) or 0.0)
+    # sionna RadioMaterial 은 scattering_coefficient ∈ (0,1), xpd_coefficient ∈ [0,1] 을 강제한다.
+    # 범위 밖 입력(예: dB 값 오입력 -3.8)은 하드 크래시(ValueError)를 내므로 안전하게 보정한다.
+    _sc = float(rt.get("itu_scattering_coeff", 0.7) or 0.7)
+    cfg.scattering_coefficient = _sc if (0.0 < _sc < 1.0) else 0.7  # 범위 밖 → 기본값 복구
+    cfg._scattering_coefficient_raw = _sc  # 경고 로깅용 원본 보존
+    _xpd = float(rt.get("itu_xpd_coeff", 0.0) or 0.0)
+    cfg.xpd_coefficient = min(max(_xpd, 0.0), 1.0)  # [0,1] 클램프
+    cfg._xpd_coefficient_raw = _xpd
     cfg.scattering_pattern = str(rt.get("scattering_pattern", "lambertian") or "lambertian")
     cfg.directive_alpha_r = int(rt.get("directive_alpha_r", 10) or 10)
     cfg.backscattering_alpha_r = int(rt.get("backscattering_alpha_r", 20) or 20)
@@ -215,6 +221,13 @@ def run_batch_rt(payload: dict, session_dir: Path, scene_xml: Path, scene_ply: P
                                      else "🤖 Batch Ray Tracing (PARK_2 방식) 시작")})
     emit({"kind": "log", "message": f"  RT 모드: {'INTG' if intg_mode else 'BATCH_RX'} | TX {len(cfg.tx_positions)}대 | RX {len(cfg.rx_positions)}개 | batch {cfg.batch_size}"})
     emit({"kind": "log", "message": f"  주파수 {cfg.frequency/1e9:.2f} GHz | max_depth {cfg.max_depth} | samples {cfg.num_samples:,} | scattering {cfg.scattering_coefficient}"})
+    # 범위 밖 재질 파라미터 보정 경고 (sionna 가 하드 에러를 내므로 _build_config 에서 미리 보정함)
+    _sc_raw = getattr(cfg, "_scattering_coefficient_raw", cfg.scattering_coefficient)
+    if not (0.0 < _sc_raw < 1.0):
+        emit({"kind": "log", "message": f"  ⚠️ itu_scattering_coeff={_sc_raw} 는 (0,1) 범위 밖 → {cfg.scattering_coefficient} 로 보정"})
+    _xpd_raw = getattr(cfg, "_xpd_coefficient_raw", cfg.xpd_coefficient)
+    if not (0.0 <= _xpd_raw <= 1.0):
+        emit({"kind": "log", "message": f"  ⚠️ itu_xpd_coeff={_xpd_raw} 는 [0,1] 범위 밖 → {cfg.xpd_coefficient} 로 보정"})
     emit({"kind": "log", "message": f"  안테나 TX {cfg.num_tx_rows}×{cfg.num_tx_cols}={cfg.num_tx_ant}p / RX {cfg.num_rx_rows}×{cfg.num_rx_cols}={cfg.num_rx_ant}p"})
     emit({"kind": "log", "message": "=" * 56})
 
@@ -453,6 +466,10 @@ def run_batch_rt(payload: dict, session_dir: Path, scene_xml: Path, scene_ply: P
             n_valid = int((mask == S.RX_VALID).sum())
             n_dead = int((mask == S.RX_DEAD).sum())
             n_fail = int((mask == S.RX_RT_FAIL).sum())
+            _co = sup.get("cov_omitted")
+            if _co is not None and int(np.asarray(_co).reshape(-1)[0]) == 1:
+                emit({"kind": "log", "message": f"   ⚠️ 공분산 R_TX 생략 (TX안테나 {cfg.num_tx_ant}p × RX {mask.size} 가 커서 superset OOM 방지) "
+                                                f"— channel_data per-pair 에는 유지됨"})
             emit({"kind": "log", "message": f"   superset shape: T={n_tx} R={mask.size} "
                                             f"K={int(np.asarray(sup['max_paths']).item())} "
                                             f"P={int(np.asarray(sup['max_rays']).item())}"})

@@ -38,6 +38,7 @@ def build_superset(
     rng_seed: int | None = 0,
     max_rays_cap: int | None = None,
     tau_min_threshold: float = S.TAU_MIN_THRESHOLD,
+    cov_max_bytes: float = 6e9,
 ) -> dict:
     """per_tx_all_results(list[T] of list[R] of result dict) → superset dict.
 
@@ -84,6 +85,14 @@ def build_superset(
     K = max(K, 1); P = max(P, 1)  # 0 방지
 
     # ── 2) 스택 배열 할당 (동적 K/P) ───────────────────────────
+    # 공분산 크기 가드: 대형 안테나(예: 32×32=1024p)면 (T,R,At,At) 단일 배열이 수십~수백 GB →
+    # OOM 방지를 위해 cov_max_bytes 초과 시 superset 에서 공분산을 생략한다(비파괴: channel_data
+    # per-pair 에는 그대로 남고, P1C/D 는 ray 로부터 공분산을 재계산하므로 하류 영향 없음).
+    _tx_cov_bytes = T * R * num_tx_ant * num_tx_ant * 16
+    _rx_cov_bytes = T * R * num_rx_ant * num_rx_ant * 16
+    include_tx_cov = _tx_cov_bytes <= cov_max_bytes
+    include_rx_cov = _rx_cov_bytes <= cov_max_bytes
+
     def zf(shape): return np.zeros(shape, dtype=np.float32)
     sup = {
         "path_tau": zf((T, R, K)), "path_power": zf((T, R, K)),
@@ -96,11 +105,15 @@ def build_superset(
         "source_path_idx": np.full((T, R, P), S.PAD_SOURCE_PATH_IDX, np.int32),
         "los_nlos_flag": np.full((T, R, P), S.PAD_LOS_FLAG, np.int32),
         "counts": ray_counts,
-        "R_TX": np.zeros((T, R, num_tx_ant, num_tx_ant), np.complex128),
-        "R_RX": np.zeros((T, R, num_rx_ant, num_rx_ant), np.complex128),
         "rsrp_all": np.full((T, R), -np.inf, np.float64),
         "los_all": np.zeros((T, R), bool),
     }
+    if include_tx_cov:
+        sup["R_TX"] = np.zeros((T, R, num_tx_ant, num_tx_ant), np.complex128)
+    if include_rx_cov:
+        sup["R_RX"] = np.zeros((T, R, num_rx_ant, num_rx_ant), np.complex128)
+    sup["cov_omitted"] = np.array(
+        [0 if include_tx_cov else 1, 0 if include_rx_cov else 1], np.int8)  # [R_TX생략, R_RX생략]
 
     # ── 3) 채우기 ──────────────────────────────────────────────
     for t in range(T):
@@ -113,9 +126,9 @@ def build_superset(
             sup["los_all"][t, i] = bool(r.get("los", False))
             R_TX = np.asarray(r.get("R_TX"))
             R_RX = np.asarray(r.get("R_RX"))
-            if R_TX.shape == (num_tx_ant, num_tx_ant):
+            if include_tx_cov and R_TX.shape == (num_tx_ant, num_tx_ant):
                 sup["R_TX"][t, i] = R_TX
-            if R_RX.shape == (num_rx_ant, num_rx_ant):
+            if include_rx_cov and R_RX.shape == (num_rx_ant, num_rx_ant):
                 sup["R_RX"][t, i] = R_RX
             k = int(path_counts[t, i])
             if k > 0:
