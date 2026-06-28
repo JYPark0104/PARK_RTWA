@@ -224,19 +224,23 @@ def execute_pipeline(job: JobState, emit: Callable[[dict], None]) -> dict:
 
     rt = payload["rt"]
 
-    # ----- Batch RT 엔진 (PARK_2 방식) — P1A/metric 경로와 분기 ---------------
-    if rt.get("engine") == "batch":
-        emit({"kind": "log", "message": "RT 엔진: batch (PARK_2 batch_rx) — metric 단계는 건너뜁니다."})
+    # ----- Batch / Intg RT 엔진 (PARK_2 방식) — P1A/metric 경로와 분기 ---------
+    if rt.get("engine") in ("batch", "intg"):
+        _intg = rt.get("engine") == "intg"
+        emit({"kind": "log", "message": (
+            "RT 엔진: intg (통합 superset) — metric 단계는 건너뜁니다."
+            if _intg else
+            "RT 엔진: batch (PARK_2 batch_rx) — metric 단계는 건너뜁니다.")})
         scene_ply = session_dir / "scene" / "meshes" / "scene_mesh.ply"
         if not scene_ply.exists():
             cands = sorted((session_dir / "scene" / "meshes").glob("*.ply"))
             scene_ply = cands[0] if cands else scene_ply
         from ..rt_agent_park2 import run_batch_rt
         try:
-            bp = run_batch_rt(payload, session_dir, scene_xml, scene_ply, emit)
+            bp = run_batch_rt(payload, session_dir, scene_xml, scene_ply, emit, intg_mode=_intg)
             output_paths.update(bp)
         except Exception as exc:
-            emit({"kind": "error", "stage": "BatchRT", "message": f"{type(exc).__name__}: {exc}"})
+            emit({"kind": "error", "stage": ("IntgRT" if _intg else "BatchRT"), "message": f"{type(exc).__name__}: {exc}"})
             emit({"kind": "log", "message": traceback.format_exc()})
             raise
         emit({"kind": "progress", "progress": 1.0})

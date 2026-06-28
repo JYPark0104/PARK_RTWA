@@ -23,6 +23,8 @@ import sys
 import json
 import time
 import random
+import traceback
+import datetime
 from pathlib import Path
 from typing import Callable
 
@@ -187,8 +189,15 @@ def _build_config(payload: dict, session_dir: Path, scene_xml: Path, scene_ply: 
 
 
 def run_batch_rt(payload: dict, session_dir: Path, scene_xml: Path, scene_ply: Path,
-                 emit: Callable[[dict], None]) -> dict:
-    """batch RT 전체 구동. output_paths(dict) 반환."""
+                 emit: Callable[[dict], None], intg_mode: bool = False) -> dict:
+    """batch RT 전체 구동. output_paths(dict) 반환.
+
+    intg_mode=True (Intg 통합 엔진):
+      - samples_per_src 고정(배치 수 비의존, 결정론적). num_samples = '배치(소스)당 샘플 수'.
+      - 랜덤 배치 항상 ON (seed+batch 파생).
+      - RT 루프 후 build_superset() 으로 단일 multi-TX superset NPZ 저장 +
+        reshaper(to_p1a) 로 P1B/C/D 호환 뷰 생성.
+    """
     _ensure_engine_on_path()
     from sionna.rt import PlanarArray  # type: ignore
     from RT_utils import get_adaptive_rx_positions, setup_multi_rx_scene  # type: ignore
@@ -202,8 +211,9 @@ def run_batch_rt(payload: dict, session_dir: Path, scene_xml: Path, scene_ply: P
     output_paths: dict[str, str] = {}
 
     emit({"kind": "log", "message": "=" * 56})
-    emit({"kind": "log", "message": "🤖 Batch Ray Tracing (PARK_2 방식) 시작"})
-    emit({"kind": "log", "message": f"  RT 모드: BATCH_RX | TX {len(cfg.tx_positions)}대 | RX {len(cfg.rx_positions)}개 | batch {cfg.batch_size}"})
+    emit({"kind": "log", "message": ("🧩 Intg 통합 Ray Tracing 시작" if intg_mode
+                                     else "🤖 Batch Ray Tracing (PARK_2 방식) 시작")})
+    emit({"kind": "log", "message": f"  RT 모드: {'INTG' if intg_mode else 'BATCH_RX'} | TX {len(cfg.tx_positions)}대 | RX {len(cfg.rx_positions)}개 | batch {cfg.batch_size}"})
     emit({"kind": "log", "message": f"  주파수 {cfg.frequency/1e9:.2f} GHz | max_depth {cfg.max_depth} | samples {cfg.num_samples:,} | scattering {cfg.scattering_coefficient}"})
     emit({"kind": "log", "message": f"  안테나 TX {cfg.num_tx_rows}×{cfg.num_tx_cols}={cfg.num_tx_ant}p / RX {cfg.num_rx_rows}×{cfg.num_rx_cols}={cfg.num_rx_ant}p"})
     emit({"kind": "log", "message": "=" * 56})
@@ -216,7 +226,12 @@ def run_batch_rt(payload: dict, session_dir: Path, scene_xml: Path, scene_ply: P
     num_total_rx = len(rx_pos_3d)
     batch_size = cfg.batch_size
     num_batches = (num_total_rx + batch_size - 1) // batch_size
-    samples_per_batch = max(10000, cfg.num_samples // max(num_batches, 1))
+    if intg_mode:
+        # [Intg] samples_per_src 고정: 배치 수에 비의존(결정론적). num_samples = '배치당 샘플 수'.
+        # (batch 모드의 num_samples//num_batches 분할을 폐기 → 총 RT 시간↑, 재현성↑)
+        samples_per_batch = max(10000, cfg.num_samples)
+    else:
+        samples_per_batch = max(10000, cfg.num_samples // max(num_batches, 1))
 
     num_tx = len(cfg.tx_positions)
     per_tx_all_results: list = []
@@ -234,8 +249,10 @@ def run_batch_rt(payload: dict, session_dir: Path, scene_xml: Path, scene_ply: P
     # (순차 배치 시 [RX0~49] 초반에 RSRP/Ray 가 몰려 가로줄 클러스터가 생기는 현상 완화)
     # 셔플은 내부 처리 순서에만 적용하고, 결과는 항상 원래 RX 인덱스로 되돌려 저장한다.
     _rt_cfg = payload.get("rt", {})
-    random_batch = bool(_rt_cfg.get("random_batch", False))
+    random_batch = bool(_rt_cfg.get("random_batch", False)) or intg_mode  # intg 는 항상 랜덤배치 ON
     _seed = _rt_cfg.get("random_batch_seed", None)
+    if intg_mode and _seed in (None, ""):
+        _seed = cfg.seed  # intg: 재현성 위해 마스터 seed 로 배치 셔플 고정
     perm = list(range(num_total_rx))
     if random_batch:
         random.Random(int(_seed) if _seed not in (None, "") else None).shuffle(perm)
@@ -378,6 +395,62 @@ def run_batch_rt(payload: dict, session_dir: Path, scene_xml: Path, scene_ply: P
     out1 = pp.save_output1_multi(per_tx_all_results, cfg.output_dir_channel, cfg.map_title, config=cfg, rx_positions_3d=rx_pos_3d)
     output_paths["batch_channel_npz"] = out1
     emit({"kind": "stage_end", "stage": "Output1", "message": Path(out1).name})
+
+    # ── Intg: superset NPZ + reshaper 뷰 (P1A 호환) ─────────────────────────
+    if intg_mode:
+        emit({"kind": "stage_start", "stage": "Intg", "progress": 1.0 - VIZ_FRAC * 0.85})
+        try:
+            from .intg.intg_writer import build_superset
+            from .intg.reshapers.to_p1a import superset_to_p1a
+            from .intg import superset_schema as S
+
+            ts = datetime.datetime.now().strftime("%y%m%d_%H%M%S")
+            intg_dir = Path(cfg.output_dir) / "Intg_Results"
+            intg_dir.mkdir(parents=True, exist_ok=True)
+
+            sup = build_superset(
+                per_tx_all_results=per_tx_all_results,
+                tx_positions=cfg.tx_positions,
+                rx_positions_3d=rx_pos_3d,
+                frequency_hz=cfg.frequency,
+                num_tx_ant=cfg.num_tx_ant,
+                num_rx_ant=cfg.num_rx_ant,
+                target_tx_index=cfg.target_tx_index,
+                target_rx_index=cfg.target_rx_index,
+                rng_seed=cfg.seed,
+                max_rays_cap=cfg.viz.max_rays_per_rx,
+            )
+            problems = S.validate(sup)
+            if problems:
+                emit({"kind": "log", "message": "⚠️ superset 검증 경고: " + "; ".join(problems)})
+
+            # 단일 multi-TX superset NPZ (canonical 출력, 덮어쓰기 방지 타임스탬프)
+            sup_path = intg_dir / f"superset_{cfg.map_title}_{ts}.npz"
+            np.savez_compressed(sup_path, **sup)
+            output_paths["intg_superset_npz"] = str(sup_path)
+
+            # P1A 호환 뷰 (TX별 단일-TX 파일) → P1B/C/D 가 무수정으로 소비
+            n_tx = int(np.asarray(sup["tx_positions"]).shape[0])
+            freq_ghz = float(np.asarray(sup["frequency_ghz"]).item())
+            for t in range(n_tx):
+                p1a = superset_to_p1a(sup, tx_index=t, area_index=t + 1)
+                p1a_path = intg_dir / f"Area{t+1}_{freq_ghz:.1f}GHz_Rays_ALL_RXs.npz"
+                np.savez(p1a_path, **p1a)
+                output_paths[f"intg_p1a_tx{t}"] = str(p1a_path)
+
+            mask = np.asarray(sup["rx_valid_mask"])
+            n_valid = int((mask == S.RX_VALID).sum())
+            n_dead = int((mask == S.RX_DEAD).sum())
+            n_fail = int((mask == S.RX_RT_FAIL).sum())
+            emit({"kind": "log", "message": f"   superset shape: T={n_tx} R={mask.size} "
+                                            f"K={int(np.asarray(sup['max_paths']).item())} "
+                                            f"P={int(np.asarray(sup['max_rays']).item())}"})
+            emit({"kind": "stage_end", "stage": "Intg",
+                  "message": f"superset {sup_path.name} | P1A뷰 {n_tx}개 | "
+                             f"RX valid {n_valid}/dead {n_dead}/fail {n_fail}"})
+        except Exception as exc:
+            emit({"kind": "log", "message": f"⚠️ Intg superset 실패(계속): {type(exc).__name__}: {exc}"})
+            emit({"kind": "log", "message": traceback.format_exc()})
 
     # ── Viz (RSRP/LoS/PDP/PADP/공분산/rx_positions) ─────────────────────────
     emit({"kind": "stage_start", "stage": "Viz", "progress": 1.0 - VIZ_FRAC * 0.6})

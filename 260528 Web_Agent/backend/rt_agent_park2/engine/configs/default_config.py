@@ -374,6 +374,10 @@ class RawRayData:
     phi_r: np.ndarray = field(default_factory=lambda: np.array([]))
     phi_t: np.ndarray = field(default_factory=lambda: np.array([]))
     los: np.ndarray = field(default_factory=lambda: np.array([], dtype=bool))
+    # [Intg] 통합 RT(P1A 호환)용 고도각 + 경로별 LoS. (batch 단독 모드에선 빈 배열 = 무시)
+    theta_r: np.ndarray = field(default_factory=lambda: np.array([]))   # 수신 고도(ZoA, rad)
+    theta_t: np.ndarray = field(default_factory=lambda: np.array([]))   # 송신 고도(ZoD, rad)
+    path_los: np.ndarray = field(default_factory=lambda: np.array([], dtype=bool))  # (num_rx,num_paths) 경로별 LoS
 
 
 # ============================================================

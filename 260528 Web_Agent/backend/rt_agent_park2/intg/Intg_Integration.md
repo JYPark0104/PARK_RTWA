@@ -24,8 +24,18 @@ P1A(ray-level 기하) + batch(MIMO 공분산/집계) 를 **단일 multi-TX super
 
 ## 진행 (TODO)
 - [x] superset 스키마 + 두 reshaper (순수함수) — 합성데이터 shape 검증 통과
-- [ ] intg_writer: batch 코어 + P1A RayGen(subrayProposed) 재사용으로 ray 확장 → superset 생성
-- [ ] 4.RT 'Intg Mode' 추가 (P1A/batch 유지)
-- [ ] rx_valid_mask 산출(dead/rt_fail) 통합
-- [ ] 소규모 씬에서 P1A 원본 NPZ 와 배열 1:1 대조 검증
+- [x] intg_writer: batch 코어 + P1A RayGen(subrayProposed) 재사용으로 ray 확장 → superset 생성
+- [x] 4.RT 'Intg Mode' 추가 (P1A/batch 유지) — schema engine="intg", batch_runner intg_mode 분기,
+      pipeline_executor engine 분기, 프론트 토글(RTConfigPage/useStore), ScenarioPage 게이트
+- [x] rx_valid_mask 산출(dead/rt_fail) 통합 — build_superset 내 비파괴 마스크
+- [ ] 소규모 씬에서 P1A 원본 NPZ 와 배열 1:1 대조 검증 (실제 GPU RT 미실행)
+- [ ] (옵션) P1B 멀티-TX 직접 소비 — 현재는 to_p1a 가 TX별 P1A 파일로 분리 제공(P1B 무수정)
 - [ ] ETA 예측 시스템
+
+## Intg 엔진 동작 (구현됨)
+4.RT 에서 'Intg 통합 RT' 선택 → `engine="intg"`:
+1. batch 코어로 RT (samples_per_src 고정, 랜덤배치 항상 ON, seed=RT seed 파생)
+2. `pp.save_output1_multi` → channel_data_*.npz (batch viz/Scenario 호환)
+3. `build_superset` → `<session>/Batch_RT_Results/Intg_Results/superset_<title>_<ts>.npz` (canonical)
+4. `superset_to_p1a` → 같은 폴더에 `Area{t+1}_{freq}GHz_Rays_ALL_RXs.npz` (TX별, P1B/C/D 무수정 소비)
+5. viz/hitmap/export 는 batch 와 동일 경로 재사용

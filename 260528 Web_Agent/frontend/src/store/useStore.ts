@@ -24,7 +24,7 @@ export interface CoverageMapOpts {
 
 export interface RTOpts {
   mode: 'simple' | 'advanced'
-  engine: 'p1a' | 'batch'
+  engine: 'p1a' | 'batch' | 'intg'
   batch_size: number
   random_batch: boolean   // batch RT: RX 순서를 무작위로 섞어 배치 구성 (가로줄 클러스터 완화)
   frequency_ghz: number

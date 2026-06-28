@@ -59,11 +59,31 @@ export function RTConfigPage() {
             onClick={() => setRT({ engine: 'batch' })}>
             batch Ray Tracing
           </button>
+          <button
+            className={`btn ${rt.engine === 'intg' ? 'btn-primary' : 'btn-secondary'}`}
+            onClick={() => setRT({ engine: 'intg' })}>
+            Intg 통합 RT
+          </button>
         </div>
         {rt.engine === 'p1a' ? (
           <p className="text-xs text-slate-500 mt-2">
             기존 P1A 파이프라인 (251218 표준 NPZ → metric 단계 호환). 선택한 metric이 그대로 실행됩니다.
           </p>
+        ) : rt.engine === 'intg' ? (
+          <div className="mt-2 space-y-2">
+            <p className="text-xs text-indigo-600">
+              통합(Intg) RT — batch 코어로 RT 후 단일 multi-TX superset NPZ 1개를 생성합니다.
+              (ray-level + path-level + 공분산 + rx_valid_mask 모두 포함) reshaper 가 P1A(P1B/C/D) ·
+              channel(viz) 뷰로 떠먹여 하류는 무수정. samples/src 고정 + 랜덤배치 항상 ON(결정론적).
+            </p>
+            <div className="w-48">
+              <NumberInput label="batch_size (배치당 RX)" integer value={rt.batch_size} on={(v) => setRT({ batch_size: v })} />
+            </div>
+            <p className="text-xs text-slate-500">
+              num_samples 는 '배치(소스)당 샘플 수'로 고정 적용됩니다 (배치 수로 나누지 않음 → 재현성↑, 총 시간↑).
+              배치 셔플 seed 는 RT seed 에서 파생됩니다.
+            </p>
+          </div>
         ) : (
           <div className="mt-2 space-y-2">
             <p className="text-xs text-amber-600">

@@ -71,3 +71,6 @@ secrets*.json
 # "251020 BM QIE (Weichselberger)/"
 # "251009_CCM_Collection (8 GB)/"
 # "260512 RT Result Data/"
+
+# TypeScript incremental build cache
+*.tsbuildinfo

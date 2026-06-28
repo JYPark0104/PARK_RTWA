@@ -240,7 +240,7 @@ export function ScenarioPage() {
   }
 
   if (!session) return <div className="card">먼저 세션을 선택하세요.</div>
-  if (rt.engine !== 'batch') {
+  if (rt.engine !== 'batch' && rt.engine !== 'intg') {
     return (
       <div className="card text-sm">
         Scenario Generator 는 <b>batch RT 엔진</b> 산출물(USDA/OBJ)이 필요합니다.

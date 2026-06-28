@@ -87,7 +87,15 @@ def _extract_mimo_cir(raw_data: RawRayData, num_rx: int):
     phi_r_all = _squeeze_tx(phi_r_np)
     phi_t_all = _squeeze_tx(phi_t_np)
 
-    return a_c, pow_path, tau_all, phi_r_all, phi_t_all
+    # [Intg] 고도각(zenith) + 경로별 LoS (있을 때만; batch 단독 모드면 None)
+    theta_r_np = np.asarray(getattr(raw_data, "theta_r", np.array([])))
+    theta_t_np = np.asarray(getattr(raw_data, "theta_t", np.array([])))
+    theta_r_all = _squeeze_tx(theta_r_np) if theta_r_np.size else None
+    theta_t_all = _squeeze_tx(theta_t_np) if theta_t_np.size else None
+    path_los_np = np.asarray(getattr(raw_data, "path_los", np.array([])), dtype=bool)
+    path_los_all = path_los_np if path_los_np.size else None
+
+    return a_c, pow_path, tau_all, phi_r_all, phi_t_all, theta_r_all, theta_t_all, path_los_all
 
 
 def _process_single_rx(
@@ -97,7 +105,10 @@ def _process_single_rx(
     tau_all: np.ndarray,
     phi_r_all: np.ndarray,
     phi_t_all: np.ndarray,
-    config: RT_Config
+    config: RT_Config,
+    theta_r_all: np.ndarray | None = None,
+    theta_t_all: np.ndarray | None = None,
+    path_los_all: np.ndarray | None = None,
 ) -> dict:
     """
     단일 RX에 대해 유효 경로 필터링, RSRP, 공간 공분산 행렬을 계산한다.
@@ -126,12 +137,27 @@ def _process_single_rx(
     val_phi_r  = target_phi_r[valid_mask]
     val_phi_t  = target_phi_t[valid_mask]
 
+    # [Intg] 고도각 + 경로별 LoS (있을 때만)
+    n_path = target_tau.shape[0]
+    if theta_r_all is not None:
+        vtr = np.asarray(theta_r_all[rx_idx]).reshape(-1)[:n_path][valid_mask]
+        vtt = np.asarray(theta_t_all[rx_idx]).reshape(-1)[:n_path][valid_mask]
+    else:
+        vtr = vtt = None
+    if path_los_all is not None:
+        vlos = np.asarray(path_los_all[rx_idx], dtype=bool).reshape(-1)[:n_path][valid_mask]
+    else:
+        vlos = None
+
     if val_pow.size == 0:
         return {
             "tau": np.array([]),
             "power_dbm": np.array([]),
             "aoa_azimuth": np.array([]),
             "aod_azimuth": np.array([]),
+            "theta_r_deg": np.array([]),
+            "theta_t_deg": np.array([]),
+            "los_flag": np.array([], dtype=np.int32),
             "total_rsrp_dbm": -np.inf,
             "R_TX": np.zeros((num_tx_ant, num_tx_ant), dtype=np.complex128),
             "R_RX": np.zeros((num_rx_ant, num_rx_ant), dtype=np.complex128),
@@ -145,11 +171,16 @@ def _process_single_rx(
     R_RX = np.einsum('ikp,jkp->ij', A, np.conj(A))   # (R, R)
     R_TX = np.einsum('kip,kjp->ij', np.conj(A), A)   # (T, T)
 
+    n_valid = int(val_pow.size)
     return {
         "tau": val_tau,
         "power_dbm": 10 * np.log10(val_pow + 1e-15) + 30,
         "aoa_azimuth": val_phi_r * (180 / np.pi),
         "aod_azimuth": val_phi_t * (180 / np.pi),
+        # [Intg] 고도각(deg) + 경로별 LoS(int). theta 없으면 0 으로 채움.
+        "theta_r_deg": (vtr * (180 / np.pi)) if vtr is not None else np.zeros(n_valid),
+        "theta_t_deg": (vtt * (180 / np.pi)) if vtt is not None else np.zeros(n_valid),
+        "los_flag": (vlos.astype(np.int32) if vlos is not None else np.zeros(n_valid, np.int32)),
         "total_rsrp_dbm": rsrp_dbm,
         "R_TX": R_TX,
         "R_RX": R_RX,
@@ -179,7 +210,7 @@ def run(raw_data: RawRayData, config: RT_Config) -> SimulationResult:
 
     # ── 안테나 차원이 보존된 CIR 추출 ─────────────────────────
     try:
-        a_c, pow_all, tau_all, phi_r_all, phi_t_all = _extract_mimo_cir(raw_data, num_rx)
+        a_c, pow_all, tau_all, phi_r_all, phi_t_all, theta_r_all, theta_t_all, path_los_all = _extract_mimo_cir(raw_data, num_rx)
     except Exception as e:
         print(f"   데이터 슬라이싱 실패: {e}")
         print("   → 전체 Dead Zone으로 처리합니다.")
@@ -192,7 +223,8 @@ def run(raw_data: RawRayData, config: RT_Config) -> SimulationResult:
     all_results = []
     dead_zone_count = 0
     for i in range(num_rx):
-        res = _process_single_rx(i, a_c, pow_all, tau_all, phi_r_all, phi_t_all, config)
+        res = _process_single_rx(i, a_c, pow_all, tau_all, phi_r_all, phi_t_all, config,
+                                 theta_r_all, theta_t_all, path_los_all)
         res["los"] = bool(los_arr[i]) if i < los_arr.shape[0] else False
         all_results.append(res)
         if res["total_rsrp_dbm"] == -np.inf:
@@ -272,7 +304,7 @@ def run_batch(raw_data: RawRayData, batch_rx_positions: list,
     los_arr = np.asarray(getattr(raw_data, "los", np.array([])), dtype=bool)
 
     try:
-        a_c, pow_all, tau_all, phi_r_all, phi_t_all = _extract_mimo_cir(raw_data, num_rx)
+        a_c, pow_all, tau_all, phi_r_all, phi_t_all, theta_r_all, theta_t_all, path_los_all = _extract_mimo_cir(raw_data, num_rx)
     except Exception as e:
         # 슬라이싱 실패는 quiet 여부와 무관하게 항상 알림 (비정상 상황)
         print(f"\n   ⚠️  [PostProcess] 배치 {batch_idx} 슬라이싱 실패: {e} → Dead Zone으로 채움")
@@ -291,7 +323,8 @@ def run_batch(raw_data: RawRayData, batch_rx_positions: list,
 
     dead_count = 0
     for i in range(num_rx):
-        res = _process_single_rx(i, a_c, pow_all, tau_all, phi_r_all, phi_t_all, config)
+        res = _process_single_rx(i, a_c, pow_all, tau_all, phi_r_all, phi_t_all, config,
+                                 theta_r_all, theta_t_all, path_los_all)
         res["los"] = bool(los_arr[i]) if i < los_arr.shape[0] else False
         _accumulated_results.append(res)
         if res["total_rsrp_dbm"] == -np.inf:

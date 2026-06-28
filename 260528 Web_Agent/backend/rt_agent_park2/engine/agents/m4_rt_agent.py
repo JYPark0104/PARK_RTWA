@@ -90,6 +90,14 @@ def run(scene, config: RT_Config, quiet: bool = False):
     phi_r_np = np.array(paths.phi_r)
     phi_t_np = np.array(paths.phi_t)
 
+    # ── 3b. [Intg] 고도각(zenith) 추출 — P1A 호환 superset 용 ──
+    try:
+        theta_r_np = np.array(paths.theta_r)
+        theta_t_np = np.array(paths.theta_t)
+    except Exception:
+        theta_r_np = np.array([])
+        theta_t_np = np.array([])
+
     # ── 3-1. RX별 LoS(직시) 경로 존재 여부 계산 ────────────────
     #   LoS 경로 = 유효(valid) AND 모든 depth의 interaction이 NONE(0)
     #   interactions: (max_depth, num_rx, num_tx, num_paths)
@@ -102,11 +110,17 @@ def run(scene, config: RT_Config, quiet: bool = False):
         # TX/경로 축에 대해 OR → RX별 LoS 존재 여부
         los_per_rx = los_path_mask.any(axis=tuple(range(1, los_path_mask.ndim)))
         los_per_rx = np.asarray(los_per_rx, dtype=bool)
+        # [Intg] 경로별 LoS (단일 TX 축 제거) → (num_rx, num_paths)
+        try:
+            path_los = np.asarray(los_path_mask[:, 0, :], dtype=bool)
+        except Exception:
+            path_los = np.array([], dtype=bool)
         n_los = int(los_per_rx.sum())
         _p(f"   📡 LoS 보유 RX: {n_los}개 / {los_per_rx.shape[0]}개")
     except Exception as e:
         _p(f"   ⚠️  LoS 판별 실패 (빈 배열로 처리): {e}")
         los_per_rx = np.array([], dtype=bool)
+        path_los = np.array([], dtype=bool)
 
     # ── 4. 타겟 RX 유효 경로 수 출력 ─────────────────────────
     num_rx = len(config.rx_positions)
@@ -125,7 +139,10 @@ def run(scene, config: RT_Config, quiet: bool = False):
         tau=tau_np,
         phi_r=phi_r_np,
         phi_t=phi_t_np,
-        los=los_per_rx
+        los=los_per_rx,
+        theta_r=theta_r_np,
+        theta_t=theta_t_np,
+        path_los=path_los,
     )
 
     _p(f"\n✅ [RT_Agent] 완료 ({elapsed:.2f}s)")

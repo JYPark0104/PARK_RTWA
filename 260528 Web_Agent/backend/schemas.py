@@ -128,10 +128,11 @@ class RTConfig(BaseModel):
 
     mode: Literal["simple", "advanced"] = "simple"
 
-    # --- RT 엔진 선택 (P1A 표준 파이프라인 vs PARK_2 batch RT) ---
-    engine: Literal["p1a", "batch"] = "p1a"
-    batch_size: int = 50              # batch 엔진 전용: 배치당 RX 개수
-    random_batch: bool = False        # batch 엔진: RX 순서를 무작위 셔플해 배치 구성
+    # --- RT 엔진 선택 (P1A 표준 / PARK_2 batch RT / Intg 통합) ---
+    #   intg: batch 코어로 RT → 단일 multi-TX superset NPZ + reshaper(P1A/channel) 뷰 생성.
+    engine: Literal["p1a", "batch", "intg"] = "p1a"
+    batch_size: int = 50              # batch/intg 엔진 전용: 배치당 RX 개수
+    random_batch: bool = False        # batch 엔진: RX 순서를 무작위 셔플해 배치 구성 (intg 는 항상 ON)
     random_batch_seed: int | None = None  # 재현용 시드(None=매번 무작위)
 
     frequency_ghz: float = 7.5
