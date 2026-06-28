@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { apiClient } from '../lib/api'
+import { apiClient, formatApiError} from '../lib/api'
 import { useStore } from '../store/useStore'
 
 type RX = { idx: number; x: number; y: number; z: number }
@@ -42,7 +42,7 @@ export function ScenarioPage() {
       const d = await apiClient.scenarioData(session.uuid)
       setData(d)
     } catch (ex: any) {
-      setErr(ex?.response?.data?.detail ?? ex.message)
+      setErr(formatApiError(ex))
     } finally { setLoading(false) }
   }
   useEffect(() => { loadData() }, [session?.uuid])
@@ -235,7 +235,7 @@ export function ScenarioPage() {
       setScenarioResult({ ...res, session_uuid: session.uuid })
       navigate('/scenario-results')
     } catch (ex: any) {
-      setErr(ex?.response?.data?.detail ?? ex.message)
+      setErr(formatApiError(ex))
     } finally { setBusy(false) }
   }
 

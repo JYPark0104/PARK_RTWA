@@ -7,6 +7,24 @@ export const api = axios.create({
 
 export type Coord3 = [number, number, number]
 
+/** API 에러를 항상 '사람이 읽는 문자열'로 변환한다.
+ * FastAPI/Pydantic 422 의 detail 은 [{type,loc,msg,input,ctx}] 배열(또는 객체)이라
+ * React 자식으로 그대로 렌더하면 "Objects are not valid as a React child" 로 크래시한다. */
+export function formatApiError(ex: any): string {
+  const detail = ex?.response?.data?.detail
+  if (detail == null) return ex?.message ?? '알 수 없는 오류'
+  if (typeof detail === 'string') return detail
+  const fmt1 = (d: any): string => {
+    if (d == null) return ''
+    if (typeof d === 'string') return d
+    const loc = Array.isArray(d.loc) ? d.loc.join('.') : (d.loc ?? '')
+    const msg = d.msg ?? d.message ?? JSON.stringify(d)
+    return loc ? `${loc}: ${msg}` : msg
+  }
+  if (Array.isArray(detail)) return detail.map(fmt1).join(' / ')
+  return fmt1(detail)
+}
+
 export interface MetricSpec {
   id: string
   label: string

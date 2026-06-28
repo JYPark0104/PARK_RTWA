@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { apiClient } from '../lib/api'
+import { apiClient, formatApiError} from '../lib/api'
 import { SceneViewer } from '../components/SceneViewer'
 import { useStore } from '../store/useStore'
 
@@ -70,7 +70,7 @@ export function ScenePage() {
       refreshLibrary()
       setLibSel(nm)
     } catch (ex: any) {
-      setErr(ex?.response?.data?.detail ?? ex.message)
+      setErr(formatApiError(ex))
     } finally { setLibBusy(false); e.target.value = '' }
   }
 
@@ -82,7 +82,7 @@ export function ScenePage() {
       if (libSel === name) setLibSel('')
       refreshLibrary()
     } catch (ex: any) {
-      setErr(ex?.response?.data?.detail ?? ex.message)
+      setErr(formatApiError(ex))
     } finally { setLibBusy(false) }
   }
 
@@ -94,7 +94,7 @@ export function ScenePage() {
       await apiClient.uploadSceneSkin(name, file)   // 대용량 GLB (timeout 0)
       refreshLibrary()
     } catch (ex: any) {
-      setErr(ex?.response?.data?.detail ?? ex.message)
+      setErr(formatApiError(ex))
     } finally { setLibBusy(false); e.target.value = '' }
   }
 
@@ -105,7 +105,7 @@ export function ScenePage() {
       await apiClient.deleteSceneSkin(name)
       refreshLibrary()
     } catch (ex: any) {
-      setErr(ex?.response?.data?.detail ?? ex.message)
+      setErr(formatApiError(ex))
     } finally { setLibBusy(false) }
   }
 
@@ -120,7 +120,7 @@ export function ScenePage() {
       const res = await apiClient.uploadScene(session.uuid, file, material)
       setSceneInfo(res.scene_info)
     } catch (ex: any) {
-      setErr(ex?.response?.data?.detail ?? ex.message)
+      setErr(formatApiError(ex))
     } finally {
       setBusy(false)
       e.target.value = ''
@@ -134,7 +134,7 @@ export function ScenePage() {
       const res = await apiClient.sceneFromLibrary(session.uuid, libSel, material)
       setSceneInfo(res.scene_info)
     } catch (ex: any) {
-      setErr(ex?.response?.data?.detail ?? ex.message)
+      setErr(formatApiError(ex))
     } finally {
       setBusy(false)
     }
@@ -187,7 +187,7 @@ export function ScenePage() {
       const res = await apiClient.sceneStageBuild(session.uuid)
       setSceneInfo(res.scene_info)
     } catch (ex: any) {
-      setErr(ex?.response?.data?.detail ?? ex.message ?? '업로드 실패')
+      setErr(formatApiError(ex))
     } finally { setBusy(false); setUploadPct(null) }
   }
 
@@ -203,7 +203,7 @@ export function ScenePage() {
       refreshRadioLibrary()
       setRadioLibSel(nm)
     } catch (ex: any) {
-      setErr(ex?.response?.data?.detail ?? ex.message ?? '저장 실패')
+      setErr(formatApiError(ex))
     } finally { setLibBusy(false); setUploadPct(null) }
   }
 
@@ -214,7 +214,7 @@ export function ScenePage() {
       const res = await apiClient.sceneFromLibraryRadio(session.uuid, radioLibSel)
       setSceneInfo(res.scene_info)
     } catch (ex: any) {
-      setErr(ex?.response?.data?.detail ?? ex.message)
+      setErr(formatApiError(ex))
     } finally {
       setBusy(false)
     }
@@ -228,7 +228,7 @@ export function ScenePage() {
       if (radioLibSel === name) setRadioLibSel('')
       refreshRadioLibrary()
     } catch (ex: any) {
-      setErr(ex?.response?.data?.detail ?? ex.message)
+      setErr(formatApiError(ex))
     } finally { setLibBusy(false) }
   }
 

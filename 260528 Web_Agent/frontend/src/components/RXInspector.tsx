@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { apiClient } from '../lib/api'
+import { apiClient, formatApiError} from '../lib/api'
 
 type RX = { idx: number; x: number; y: number; z: number }
 type TX = { idx: number; x: number; y: number; z: number }
@@ -26,7 +26,7 @@ export function RXInspector({ uuid }: { uuid: string }) {
   useEffect(() => {
     apiClient.scenarioData(uuid)
       .then(setData)
-      .catch((e) => setErr(e?.response?.data?.detail ?? e.message))
+      .catch((e) => setErr(formatApiError(e)))
   }, [uuid])
 
   const bounds = useMemo(() => {
@@ -93,7 +93,7 @@ export function RXInspector({ uuid }: { uuid: string }) {
       const res = await apiClient.rxInspect(uuid, best, txIndex)
       setInsp(res)
     } catch (ex: any) {
-      setErr(ex?.response?.data?.detail ?? ex.message)
+      setErr(formatApiError(ex))
     } finally { setLoading(false) }
   }
 

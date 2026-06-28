@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { apiClient } from '../lib/api'
+import { apiClient, formatApiError } from '../lib/api'
 import { useStore } from '../store/useStore'
 
 export function JobRunPage() {
@@ -37,7 +37,7 @@ export function JobRunPage() {
       setQueued(true)
       openWS(job.job_id)
     } catch (ex: any) {
-      setErr(ex?.response?.data?.detail ?? ex.message)
+      setErr(formatApiError(ex))
     } finally {
       setBusy(false)
     }
@@ -103,7 +103,7 @@ export function JobRunPage() {
             </button>
           </div>
         )}
-        {err && <div className="text-sm text-red-600 mt-2">{err}</div>}
+        {err && <div className="text-sm text-red-600 mt-2 whitespace-pre-wrap">{typeof err === 'string' ? err : JSON.stringify(err)}</div>}
       </section>
 
       {currentJob && (

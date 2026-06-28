@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { apiClient, type SessionMeta, type User } from '../lib/api'
+import { apiClient, type SessionMeta, type User, formatApiError} from '../lib/api'
 import { useStore } from '../store/useStore'
 import { QueueDashboard } from '../components/QueueDashboard'
 
@@ -51,7 +51,7 @@ export function SessionsPage() {
       setNewUser('')
       await refreshUsers()
       setUser(u)
-    } catch (ex: any) { setErr(ex?.response?.data?.detail ?? ex.message) }
+    } catch (ex: any) { setErr(formatApiError(ex)) }
   }
   async function renameUser(u: User) {
     const nl = prompt('새 user 이름', u.name)
