@@ -24,11 +24,25 @@ from pathlib import Path
 # ---------------------------------------------------------------------------
 _SAFE_RE = re.compile(r"[^A-Za-z0-9._-]")
 
+# 표시용 라벨/이름: 파일시스템 경로가 아니라 화면 표시·메타(JSON, ensure_ascii=False)에만 쓰이므로
+# 한글 등 유니코드는 보존하고, 경로/제어 위험 문자만 '_' 로 치환한다.
+# (세션 디렉터리는 UUID, RT 산출물 파일명은 uuid 기반 map_title 을 별도 sanitize 하므로 안전)
+_UNSAFE_DISPLAY_RE = re.compile(r'[\x00-\x1f\x7f/\\:*?"<>|]')
+
 
 def sanitize(name: str, max_len: int = 24) -> str:
-    """파일명/세션명에 안전한 문자만 남기기."""
+    """파일명용 엄격 정규화 (ASCII 영숫자 + ._- 만). 실제 파일/폴더명에 쓸 때 사용."""
 
     return _SAFE_RE.sub("_", name)[:max_len] or "scene"
+
+
+def sanitize_display(name: str, max_len: int = 120) -> str:
+    """표시용 라벨/이름 정규화 — 한글 등 유니코드 보존, 경로/제어 위험 문자만 치환."""
+
+    cleaned = _UNSAFE_DISPLAY_RE.sub("_", (name or "")).strip()
+    cleaned = cleaned.lstrip(".")           # 숨김파일/상위경로(.. ) 흉내 방지
+    cleaned = cleaned.strip()
+    return cleaned[:max_len] or "scene"
 
 
 def metrics_hash(metrics: list[str], max_show: int = 3) -> str:
@@ -127,7 +141,7 @@ def build_label(
     """라벨 문자열 조립."""
 
     parts = [
-        sanitize(scene_name) or "scene",
+        sanitize_display(scene_name, max_len=40) or "scene",
         f"{bs_rows}x{bs_cols}",
         f"{ue_rows}x{ue_cols}",
         metrics_hash(metrics),
@@ -222,7 +236,7 @@ def update_label(session_dir: Path, new_label: str) -> SessionMeta:
     meta = load_meta(session_dir)
     if meta is None:
         raise FileNotFoundError(f"session_meta.json not found in {session_dir}")
-    meta.label = sanitize(new_label, max_len=120) or meta.label
+    meta.label = sanitize_display(new_label, max_len=120) or meta.label
     save_meta(session_dir, meta)
     return meta
 
