@@ -193,14 +193,26 @@ def create_session(
 
 
 def save_meta(session_dir: Path, meta: SessionMeta) -> None:
-    """meta json 저장."""
-
+    """meta json 원자적 저장 — temp 에 쓰고 os.replace 로 교체.
+    (다른 프로세스가 읽는 순간에도 항상 '완전한 예전 파일 또는 완전한 새 파일'만 보임 → 반쪽 읽기/500 방지)
+    """
     import json
+    import os
+    import tempfile
 
-    (Path(session_dir) / "session_meta.json").write_text(
-        json.dumps(meta.to_dict(), indent=2, ensure_ascii=False),
-        encoding="utf-8",
-    )
+    d = Path(session_dir)
+    p = d / "session_meta.json"
+    data = json.dumps(meta.to_dict(), indent=2, ensure_ascii=False)
+    try:
+        fd, tmp = tempfile.mkstemp(dir=str(d), prefix=".session_meta.", suffix=".tmp")
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(data)
+        os.replace(tmp, p)   # 원자적 교체
+    except Exception:
+        try:
+            p.write_text(data, encoding="utf-8")  # 폴백
+        except Exception:
+            pass
 
 
 def load_meta(session_dir: Path) -> SessionMeta | None:
@@ -211,7 +223,13 @@ def load_meta(session_dir: Path) -> SessionMeta | None:
     p = Path(session_dir) / "session_meta.json"
     if not p.exists():
         return None
-    raw = json.loads(p.read_text(encoding="utf-8"))
+    try:
+        raw = json.loads(p.read_text(encoding="utf-8"))
+    except Exception:
+        # 쓰기 도중이거나 손상된 경우: 대시보드가 500 나지 않도록 조용히 스킵
+        return None
+    if not isinstance(raw, dict):
+        return None
     known = {f.name for f in fields(SessionMeta)}
     filtered = {k: v for k, v in raw.items() if k in known}
     return SessionMeta(**filtered)

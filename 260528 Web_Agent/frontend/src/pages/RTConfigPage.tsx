@@ -6,8 +6,6 @@ export function RTConfigPage() {
   const navigate = useNavigate()
   const rt = useStore((s) => s.rt)
   const setRT = useStore((s) => s.setRT)
-  const antenna = useStore((s) => s.antenna)
-  const setAntenna = useStore((s) => s.setAntenna)
   const session = useStore((s) => s.session)
 
   const [adv, setAdv] = useState(false)
@@ -17,33 +15,8 @@ export function RTConfigPage() {
 
   return (
     <div className="space-y-4">
-      <section className="card">
-        <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
-          <h2 className="text-lg font-semibold">안테나 (rows × cols)</h2>
-          <div className="flex gap-2">
-            <button
-              className="btn btn-secondary text-xs"
-              title="SISO: BS 1×1, UE 1×1 로 설정"
-              onClick={() => setAntenna({ bs_rows: 1, bs_cols: 1, ue_rows: 1, ue_cols: 1 })}>
-              SISO mode (1×1 / 1×1)
-            </button>
-            <button
-              className="btn btn-secondary text-xs"
-              title="기본값 BS 32×32, UE 4×4 로 복원"
-              onClick={() => setAntenna({ bs_rows: 32, bs_cols: 32, ue_rows: 4, ue_cols: 4 })}>
-              기본 (32×32 / 4×4)
-            </button>
-          </div>
-        </div>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <NumberInput label="BS rows" value={antenna.bs_rows} on={(v) => setAntenna({ bs_rows: v })} integer />
-          <NumberInput label="BS cols" value={antenna.bs_cols} on={(v) => setAntenna({ bs_cols: v })} integer />
-          <NumberInput label="UE rows" value={antenna.ue_rows} on={(v) => setAntenna({ ue_rows: v })} integer />
-          <NumberInput label="UE cols" value={antenna.ue_cols} on={(v) => setAntenna({ ue_cols: v })} integer />
-        </div>
-        <p className="text-xs text-slate-500 mt-2">
-          patch 4×4 + grid 나머지로 자동 분해됩니다. (예: 64×64 → patch 4×4, grid 16×16 = 4096 AE)
-        </p>
+      <section className="card text-sm text-slate-500">
+        안테나(배열 rows×cols · 패턴 · 편파 · TX 방향성)는 이제 <b>3.TX / RX</b> 단계에서 설정합니다.
       </section>
 
       <section className="card">
@@ -136,49 +109,9 @@ export function RTConfigPage() {
             <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-sm">
               <NumberInput label="num_samples (samples/src)" integer value={rt.num_samples} on={(v) => setRT({ num_samples: v })} />
               <NumberInput label="max_num_paths" integer value={rt.max_num_paths} on={(v) => setRT({ max_num_paths: v })} />
-              <NumberInput label="TX 지면 이격 [m]" value={rt.tx_ground_offset_m} on={(v) => setRT({ tx_ground_offset_m: v })} />
+              <NumberInput label="POWER_OFFSET [dB] (유효 송신전력 기준, 기본 30=1W)" value={rt.power_offset} on={(v) => setRT({ power_offset: v })} />
             </div>
 
-            <div>
-              <div className="text-xs font-semibold text-slate-500 mb-1">산란(Scattering) 설정</div>
-              <p className="text-xs text-slate-400 mb-2">
-                메시의 <b>기본 재질(ITU 타입)은 2.Scene 에서 지정</b>합니다. (재질 타입이 주파수에 따라
-                permittivity·conductivity 를 자동 결정) 아래는 그 위에 얹는 <b>산란 거동</b> 튜닝입니다.
-              </p>
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-sm">
-                <NumberInput label="ITU scattering coeff" value={rt.itu_scattering_coeff} on={(v) => setRT({ itu_scattering_coeff: v })} />
-                <NumberInput label="ITU XPD coeff" value={rt.itu_xpd_coeff} on={(v) => setRT({ itu_xpd_coeff: v })} />
-                <label className="block">
-                  <span className="text-xs font-medium text-slate-600">scattering_pattern</span>
-                  <select className="input" value={rt.scattering_pattern}
-                    onChange={(e) => setRT({ scattering_pattern: e.target.value as any })}>
-                    <option value="lambertian">lambertian</option>
-                    <option value="directive">directive</option>
-                    <option value="backscattering">backscattering</option>
-                  </select>
-                </label>
-                {rt.scattering_pattern === 'directive' && (
-                  <NumberInput label="directive_alpha_r" integer value={rt.directive_alpha_r} on={(v) => setRT({ directive_alpha_r: v })} />
-                )}
-                {rt.scattering_pattern === 'backscattering' && (
-                  <>
-                    <NumberInput label="backscat_alpha_r" integer value={rt.backscattering_alpha_r} on={(v) => setRT({ backscattering_alpha_r: v })} />
-                    <NumberInput label="backscat_alpha_i" integer value={rt.backscattering_alpha_i} on={(v) => setRT({ backscattering_alpha_i: v })} />
-                    <NumberInput label="backscat_lambda" value={rt.backscattering_lambda} on={(v) => setRT({ backscattering_lambda: v })} />
-                  </>
-                )}
-              </div>
-            </div>
-
-            <div>
-              <div className="text-xs font-semibold text-slate-500 mb-1">안테나 패턴 / 편파</div>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
-                <SelectInput label="tx_pattern" value={rt.tx_pattern} on={(v) => setRT({ tx_pattern: v })} options={PATTERN_OPTIONS} />
-                <SelectInput label="tx_polarization" value={rt.tx_polarization} on={(v) => setRT({ tx_polarization: v })} options={POLARIZATION_OPTIONS} />
-                <SelectInput label="rx_pattern" value={rt.rx_pattern} on={(v) => setRT({ rx_pattern: v })} options={PATTERN_OPTIONS} />
-                <SelectInput label="rx_polarization" value={rt.rx_polarization} on={(v) => setRT({ rx_polarization: v })} options={POLARIZATION_OPTIONS} />
-              </div>
-            </div>
           </div>
         )}
       </section>
@@ -254,21 +187,3 @@ function Toggle({ label, value, on }: { label: string; value: boolean; on: (v: b
   )
 }
 
-// Sionna PlanarArray 가 받는 한정 옵션 → 드롭다운으로 제공 (직접 타이핑 제거)
-const PATTERN_OPTIONS = ['iso', 'dipole', 'hw_dipole', 'tr38901']
-const POLARIZATION_OPTIONS = ['V', 'H', 'VH', 'cross']
-
-function SelectInput({ label, value, on, options }: {
-  label: string; value: string; on: (v: string) => void; options: string[]
-}) {
-  // 저장된 값이 옵션에 없으면(예전 자유입력 값) 목록에 포함시켜 표시
-  const opts = options.includes(value) ? options : [value, ...options]
-  return (
-    <label className="block">
-      <span className="text-xs font-medium text-slate-600">{label}</span>
-      <select className="input" value={value} onChange={(e) => on(e.target.value)}>
-        {opts.map((o) => <option key={o} value={o}>{o}</option>)}
-      </select>
-    </label>
-  )
-}

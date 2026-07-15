@@ -92,8 +92,11 @@ export function QueueDashboard({
                   <span className="font-mono text-xs text-slate-500">{antStr(p)}</span>
                   {p.engine && <span className="text-xs px-1.5 py-0.5 rounded bg-slate-100">{p.engine}</span>}
                 </span>
-                <span className="text-xs text-slate-500">
+                <span className="text-xs text-slate-500 flex items-center gap-2">
                   {p.elapsed_sec != null && <span>⏱ {fmtElapsed(p.elapsed_sec)}</span>}
+                  {p.eta_sec != null
+                    ? <span className="text-blue-600 font-medium">⏳ 남은 {fmtElapsed(p.eta_sec)}</span>
+                    : <span className="text-slate-400">⏳ 준비 중…</span>}
                 </span>
               </div>
               <div className="font-mono text-xs text-slate-500 truncate">{p.label}</div>

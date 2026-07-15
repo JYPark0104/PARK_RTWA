@@ -1,0 +1,35 @@
+{
+  "source_type": "xml_bundle",
+  "mesh_files": [
+    "meshes/herald_osm_high_irr.ply",
+    "meshes/herald_osm_low_concrete.ply",
+    "meshes/herald_osm_ground_concrete.ply"
+  ],
+  "materials": [
+    "itu_concrete"
+  ],
+  "aabb_min": [
+    -885.8889770507812,
+    -885.8889770507812,
+    0.0
+  ],
+  "aabb_max": [
+    885.8889770507812,
+    885.8889770507812,
+    443.20001220703125
+  ],
+  "center": [
+    0.0,
+    0.0,
+    221.60000610351562
+  ],
+  "size": [
+    1771.7779541015625,
+    1771.7779541015625,
+    443.20001220703125
+  ],
+  "n_vertices": 15012,
+  "n_faces": 22599,
+  "units": "meters",
+  "material_assigned": true
+}

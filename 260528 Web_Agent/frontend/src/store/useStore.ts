@@ -39,6 +39,7 @@ export interface RTOpts {
   pathsolver_synthetic_array: boolean
   itu_scattering_coeff: number
   itu_xpd_coeff: number
+  material_scattering: Record<string, number>   // 재질별 산란계수 오버라이드 {재질명: S}
   // TX 배치 (PARK_2 RT 이식)
   tx_ground_offset_m: number
   // 고급 옵션 (PARK_2 config.yaml 이식)
@@ -47,6 +48,7 @@ export interface RTOpts {
   pathsolver_diffraction_lit_region: boolean
   num_samples: number
   max_num_paths: number
+  power_offset: number
   relative_permittivity: number
   conductivity: number
   material_thickness: number
@@ -65,11 +67,13 @@ export interface RTOpts {
 export interface TXItem {
   position: Coord3
   orientation: Coord3
+  az_deg?: number           // TX 지향성 방위각[deg] (동=+x=0°, CCW +). orientation 계산에 사용
+  el_deg?: number           // TX 지향성 고각[deg] (아래로 향할수록 −, 다운틸트=−)
   name: string
   clicked?: Coord3 | null   // 클릭 원점(연한 마커). position = 지면+offset 스냅 위치
 }
 
-export type RXMethod = 'grid' | 'explicit' | 'radial' | 'street' | 'clicks' | 'ground_grid'
+export type RXMethod = 'grid' | 'explicit' | 'radial' | 'street' | 'clicks' | 'ground_grid' | 'facade'
 
 export interface RXState {
   method: RXMethod
@@ -101,6 +105,19 @@ export interface RXState {
   rx_layout: 'density' | 'spacing'   // ground_grid 배치 방식: 밀도(grid_n) vs 간격(m)
   spacing_m: number            // 간격(미터, 정사각). rx_layout==='spacing' 일 때 사용
   ground_positions: Coord3[]   // 미리보기/제출용으로 백엔드가 계산한 지면 RX
+  // facade (O2I, 건물 벽면): z=k 평면과 건물 수직면 교선을 따라 RX 배치
+  z_min: number                // 최저 높이 [m]
+  z_max: number                // 최대 높이 [m]
+  z_distance: number           // 높이 간격 [m] (z_min, z_min+z_distance, ...)
+  facade_spacing: number       // 컨투어를 따라 RX 간격 [m]
+  facade_epsilon: number       // 벽 바깥 이격 거리 [m]
+  facade_positions: Coord3[]   // 미리보기용으로 백엔드가 계산한 벽면 RX (미리보기 눌러야 채워짐)
+  facade_count: number | null  // 실시간 계산된 예상 RX 개수 (렌더링과 분리)
+  // facade 전용 XY 경계(bounding region). 진입 시 씬 bbox 로 초기화. '맵 전체' 버튼으로 리셋.
+  facade_x_min: number
+  facade_x_max: number
+  facade_y_min: number
+  facade_y_max: number
 }
 
 export interface AppState {
@@ -119,6 +136,7 @@ export interface AppState {
   addTXFull(item: TXItem): void
   removeTX(idx: number): void
   clearTX(): void
+  setTXOrient(idx: number, az_deg: number, el_deg: number): void
 
   rx: RXState
   setRX(p: Partial<RXState>): void
@@ -160,12 +178,14 @@ const defaultRT: RTOpts = {
   pathsolver_synthetic_array: false,
   itu_scattering_coeff: 0.2,
   itu_xpd_coeff: 0.5,
+  material_scattering: {},
   tx_ground_offset_m: 2.0,
   pathsolver_diffraction: false,
   pathsolver_edge_diffraction: false,
   pathsolver_diffraction_lit_region: true,
   num_samples: 100000,
   max_num_paths: 10000,
+  power_offset: 30,
   relative_permittivity: 5.24,
   conductivity: 0.0462,
   material_thickness: 0.1,
@@ -210,6 +230,15 @@ const defaultRX: RXState = {
   rx_layout: 'density',
   spacing_m: 10,
   ground_positions: [],
+  z_min: 1,
+  z_max: 30,
+  z_distance: 3,
+  facade_spacing: 5,
+  facade_epsilon: 0.3,
+  facade_positions: [],
+  facade_count: null,
+  facade_x_min: -100, facade_x_max: 100,
+  facade_y_min: -100, facade_y_max: 100,
 }
 
 export const useStore = create<AppState>((set) => ({
@@ -225,11 +254,14 @@ export const useStore = create<AppState>((set) => ({
 
   tx: [],
   addTX: (p) => set((st) => ({
-    tx: [...st.tx, { position: p, orientation: [0, 0, 0], name: `tx${st.tx.length + 1}` }],
+    tx: [...st.tx, { position: p, orientation: [0, 0, 0], az_deg: 0, el_deg: 0, name: `tx${st.tx.length + 1}` }],
   })),
-  addTXFull: (item) => set((st) => ({ tx: [...st.tx, item] })),
+  addTXFull: (item) => set((st) => ({ tx: [...st.tx, { az_deg: 0, el_deg: 0, ...item }] })),
   removeTX: (idx) => set((st) => ({ tx: st.tx.filter((_, i) => i !== idx) })),
   clearTX: () => set({ tx: [] }),
+  setTXOrient: (idx, az_deg, el_deg) => set((st) => ({
+    tx: st.tx.map((t, i) => (i === idx ? { ...t, az_deg, el_deg } : t)),
+  })),
 
   rx: defaultRX,
   setRX: (p) => set((st) => ({ rx: { ...st.rx, ...p } })),

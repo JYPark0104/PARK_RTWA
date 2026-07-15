@@ -1,17 +1,25 @@
-"""job_runner.py — 단일 비동기 잡 매니저.
+"""job_runner.py — 단일 비동기 잡 매니저 (프로세스 분리 실행).
 
-- 동시 실행 1개 (단일 사용자 모드).
-- 추가 요청은 asyncio.Queue에 쌓임.
-- 각 잡은 ThreadPoolExecutor (max_workers=1) 에서 실행 → 메인 이벤트 루프 비차단.
-- 진행률은 ws_manager.broker로 push.
+핵심 설계 (웹 안정화):
+- 각 잡을 **별도 자식 프로세스**(`python -m backend.jobs.run_one_job <uuid>`)로 실행.
+  → 웹 API(uvicorn) 이벤트 루프가 RT 의 GIL/CPU 부하에 **절대 묶이지 않음**.
+- **중단(cancel) = 자식 프로세스 즉시 kill** → 즉시 정지하고 다음 큐 잡으로 넘어감.
+- 진행률/로그: 자식이 세션 폴더의 `_job_events.jsonl` 로 append → 부모가 tail 하여
+  ws_manager.broker 로 전달. (대시보드는 세션 메타 폴링으로도 동작하므로 WS 는 보조.)
+- 동시 실행 1개(FIFO). 큐는 asyncio.Queue.
 """
 
 from __future__ import annotations
 
 import asyncio
 import datetime as _dt
+import json
 import logging
-import traceback
+import os
+import subprocess
+import sys
+import threading
+import time
 import uuid as _uuid
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
@@ -21,6 +29,40 @@ from typing import Any, Callable, Optional
 from ..ws_manager import broker
 
 log = logging.getLogger("job_runner")
+
+
+def _tail_error(logpath, max_chars: int = 6000, n_lines: int = 8) -> str:
+    """자식 프로세스 로그의 마지막 의미있는 에러를 짧게 추출 (UI 표시용).
+    exit code 만으로는 원인 파악이 어려워, 로그 tail(특히 Error/Exception/cuInit 등)을 올린다."""
+    try:
+        if not logpath:
+            return ""
+        from pathlib import Path as _P
+        p = _P(logpath)
+        if not p.exists():
+            return ""
+        data = p.read_text(encoding="utf-8", errors="ignore")[-max_chars:]
+        lines = [ln.rstrip() for ln in data.splitlines() if ln.strip()]
+        if not lines:
+            return ""
+        # 대표 에러 키워드가 있으면 그 줄부터 끝까지(최대 n_lines) 우선
+        markers = ("Error", "Exception", "Traceback", "cuInit", "CUDA", "failed", "assert")
+        idx = None
+        for i, ln in enumerate(lines):
+            if any(m in ln for m in markers):
+                idx = i
+                break
+        chosen = lines[idx:] if idx is not None else lines
+        tail = chosen[-n_lines:]
+        return " / ".join(tail)[:800]
+    except Exception:
+        return ""
+
+# 경로 (pipeline_executor 를 top-import 하지 않아 순환참조 회피)
+_BACKEND = Path(__file__).resolve().parent.parent          # .../backend
+APP_ROOT = _BACKEND.parent                                 # .../260528 Web_Agent (backend 패키지의 부모)
+SESSIONS_ROOT = _BACKEND / "sessions"
+LOG_DIR = APP_ROOT / "logs"
 
 
 def _now() -> str:
@@ -59,42 +101,33 @@ class JobState:
 
 
 class JobRunner:
-    """단일 사용자 모드 잡 큐 + 실행자."""
+    """단일 사용자 모드 잡 큐 + 프로세스 분리 실행자."""
+
+    _payloads: dict[str, tuple[str, dict]] = {}
 
     def __init__(self) -> None:
         self._jobs: dict[str, JobState] = {}
         self._queue: asyncio.Queue[str] = asyncio.Queue()
-        self._executor = ThreadPoolExecutor(max_workers=1)
+        self._executor = ThreadPoolExecutor(max_workers=4)  # proc.wait 대기용
         self._worker_task: asyncio.Task | None = None
-        self._workers: dict[str, Callable[[JobState, Callable[..., None]], dict]] = {}
+        self._kinds: set[str] = set()
+        self._procs: dict[str, subprocess.Popen] = {}       # job_id → 실행 중 자식 프로세스
 
-    def register_worker(self, kind: str, fn: Callable[[JobState, Callable[..., None]], dict]) -> None:
-        """worker 함수 등록.
-
-        worker signature:
-            fn(job: JobState, emit: Callable[..., None]) -> dict
-        """
-
-        self._workers[kind] = fn
+    # ------------------------------------------------------------------
+    def register_worker(self, kind: str, fn: Callable | None = None) -> None:
+        """kind 등록 (실행은 자식 프로세스 subprocess 로 이뤄지므로 fn 은 무시)."""
+        self._kinds.add(kind)
 
     def submit(self, kind: str, session_uuid: str, payload: dict[str, Any]) -> JobState:
-        """잡 등록 → 큐에 push."""
-
         job_id = f"job-{_uuid.uuid4().hex[:12]}"
         job = JobState(job_id=job_id, session_uuid=session_uuid)
-        job.output_paths["__kind__"] = kind
-        job.output_paths["__payload__"] = "<see payload>"
         self._jobs[job_id] = job
-        # payload를 별도로 보관
-        self._payloads[job_id] = (kind, payload)
+        self._payloads[job_id] = (kind, {**(payload or {}), "session_uuid": session_uuid})
         try:
             self._queue.put_nowait(job_id)
         except RuntimeError:
-            # 이벤트 루프 시작 전: 즉시 실행 보류
             asyncio.get_event_loop().call_soon(lambda: self._queue.put_nowait(job_id))
         return job
-
-    _payloads: dict[str, tuple[str, dict]] = {}
 
     def get(self, job_id: str) -> JobState | None:
         return self._jobs.get(job_id)
@@ -103,6 +136,7 @@ class JobRunner:
         return [j.to_dict() for j in self._jobs.values()]
 
     def cancel(self, job_id: str) -> bool:
+        """중단: 대기 중이면 스킵 표시, 실행 중이면 자식 프로세스를 즉시 kill."""
         job = self._jobs.get(job_id)
         if not job:
             return False
@@ -112,89 +146,198 @@ class JobRunner:
             job.state = "cancelled"
             job.finished_at = _now()
             return True
-        # running 중인 잡은 cooperative cancel (worker가 emit를 통해 polling)
-        job.state = "cancelled"  # worker가 다음 step에서 확인
+        # running → 자식 프로세스 즉시 종료
+        job.state = "cancelled"
+        proc = self._procs.get(job_id)
+        if proc is not None and proc.poll() is None:
+            try:
+                proc.terminate()          # SIGTERM
+            except Exception:
+                pass
+            try:
+                proc.wait(timeout=1.0)
+            except Exception:
+                try:
+                    proc.kill()           # SIGKILL (즉시)
+                except Exception:
+                    pass
+        # 자식이 kill 되어 세션 메타를 못 쓰므로 부모가 중단 표시
+        _kind, payload = self._payloads.get(job_id, ("", {}))
+        su = (payload or {}).get("session_uuid", "") or job.session_uuid
+        if su:
+            try:
+                from .queue_store import make_store
+                make_store().mark_cancelled(su)
+            except Exception:
+                pass
         return True
 
     async def start(self) -> None:
-        """이벤트 루프에서 한 번 호출 — 워커 태스크 가동."""
-
         if self._worker_task is None or self._worker_task.done():
             self._worker_task = asyncio.create_task(self._run_loop())
 
     async def shutdown(self) -> None:
         if self._worker_task is not None:
             self._worker_task.cancel()
+        for proc in list(self._procs.values()):
+            try:
+                if proc.poll() is None:
+                    proc.kill()
+            except Exception:
+                pass
         self._executor.shutdown(wait=False)
 
+    # ------------------------------------------------------------------
     async def _run_loop(self) -> None:
-        log.info("JobRunner worker loop started")
+        log.info("JobRunner worker loop started (process-isolated)")
+        loop = asyncio.get_event_loop()
         while True:
             try:
                 job_id = await self._queue.get()
             except asyncio.CancelledError:
                 break
             job = self._jobs.get(job_id)
-            if job is None:
-                continue
-            if job.state == "cancelled":
+            if job is None or job.state == "cancelled":
                 continue
             kind, payload = self._payloads.get(job_id, ("unknown", {}))
-            worker = self._workers.get(kind)
-            if worker is None:
+            session_uuid = (payload or {}).get("session_uuid", "") or job.session_uuid
+            if kind != "pipeline" or not session_uuid:
                 job.state = "failed"
-                job.error = f"No worker for kind={kind}"
+                job.error = f"invalid job (kind={kind}, session={session_uuid})"
                 await broker.push(job_id, {"kind": "error", "message": job.error})
                 continue
+
             job.state = "running"
             job.started_at = _now()
-            await broker.push(job_id, {
-                "kind": "log",
-                "message": f"Job {job_id} started ({kind})",
-            })
+            await broker.push(job_id, {"kind": "log", "message": f"Job {job_id} started (pipeline, isolated process)"})
 
-            loop = asyncio.get_event_loop()
-
-            def emit(event: dict) -> None:
-                """worker → broker push (스레드 안전)."""
-
-                if "progress" in event:
-                    job.progress = float(event["progress"])
-                if "stage" in event and event.get("kind") == "stage_start":
-                    job.current_stage = event["stage"]
-                if event.get("kind") == "stage_end":
-                    s = event.get("stage")
-                    if s and s not in job.stages_done:
-                        job.stages_done.append(s)
-                asyncio.run_coroutine_threadsafe(broker.push(job_id, event), loop)
-
-            def run_sync() -> dict:
-                return worker(job, emit)
-
+            sdir = SESSIONS_ROOT / session_uuid
+            evpath = sdir / "_job_events.jsonl"
             try:
-                out = await loop.run_in_executor(self._executor, run_sync)
-                if job.state == "cancelled":
-                    await broker.push(job_id, {"kind": "log", "message": "cancelled"})
-                else:
-                    job.state = "succeeded"
-                    job.output_paths.update(out.get("output_paths", {}) if isinstance(out, dict) else {})
-                    await broker.push(job_id, {"kind": "done", "message": "completed"})
+                sdir.mkdir(parents=True, exist_ok=True)
+                if evpath.exists():
+                    evpath.unlink()
+            except Exception:
+                pass
+
+            # 자식 stdout/stderr → 로그 파일 (실패 시 이 파일 tail 을 UI 로 surfacing)
+            logpath = None
+            try:
+                LOG_DIR.mkdir(parents=True, exist_ok=True)
+                logpath = LOG_DIR / f"job_{session_uuid}_{time.strftime('%y%m%d_%H%M%S')}.log"
+                logf = open(logpath, "w")
+            except Exception:
+                logf = subprocess.DEVNULL
+                logpath = None
+
+            env = dict(os.environ)
+            env.setdefault("PYTHONUNBUFFERED", "1")
+            try:
+                proc = subprocess.Popen(
+                    [sys.executable, "-m", "backend.jobs.run_one_job", session_uuid],
+                    cwd=str(APP_ROOT), env=env,
+                    stdout=logf, stderr=subprocess.STDOUT,
+                )
             except Exception as exc:  # noqa: BLE001
                 job.state = "failed"
-                job.error = f"{type(exc).__name__}: {exc}"
-                tb = traceback.format_exc()
-                log.exception("Job %s failed", job_id)
-                await broker.push(job_id, {
-                    "kind": "error",
-                    "message": job.error,
-                    "stage": job.current_stage,
-                })
-                await broker.push(job_id, {
-                    "kind": "log",
-                    "message": tb,
-                })
-            finally:
+                job.error = f"failed to spawn: {exc}"
+                await broker.push(job_id, {"kind": "error", "message": job.error})
                 job.finished_at = _now()
+                continue
+            self._procs[job_id] = proc
+
+            # 이벤트 파일 tail → broker 전달 + job 상태 갱신 (별도 스레드)
+            stop = {"stop": False}
+
+            def _monitor() -> None:
+                # 파일 생성 대기
+                for _ in range(600):
+                    if evpath.exists() or stop["stop"]:
+                        break
+                    time.sleep(0.1)
+                if not evpath.exists():
+                    return
+                try:
+                    f = open(evpath, "r", encoding="utf-8")
+                except Exception:
+                    return
+                try:
+                    while True:
+                        line = f.readline()
+                        if line:
+                            s = line.strip()
+                            if not s:
+                                continue
+                            try:
+                                ev = json.loads(s)
+                            except Exception:
+                                continue
+                            if "progress" in ev:
+                                try:
+                                    job.progress = float(ev["progress"])
+                                except Exception:
+                                    pass
+                            if ev.get("kind") == "stage_start" and ev.get("stage"):
+                                job.current_stage = ev["stage"]
+                            if ev.get("kind") == "stage_end" and ev.get("stage") and ev["stage"] not in job.stages_done:
+                                job.stages_done.append(ev["stage"])
+                            if ev.get("kind") == "done" and isinstance(ev.get("output_paths"), dict):
+                                job.output_paths.update(ev["output_paths"])
+                            try:
+                                asyncio.run_coroutine_threadsafe(broker.push(job_id, ev), loop)
+                            except Exception:
+                                pass
+                        else:
+                            if proc.poll() is not None:
+                                # 프로세스 종료 → 남은 줄 마저 읽고 종료
+                                for rest in f:
+                                    rs = rest.strip()
+                                    if not rs:
+                                        continue
+                                    try:
+                                        ev = json.loads(rs)
+                                        asyncio.run_coroutine_threadsafe(broker.push(job_id, ev), loop)
+                                    except Exception:
+                                        pass
+                                break
+                            time.sleep(0.15)
+                finally:
+                    try:
+                        f.close()
+                    except Exception:
+                        pass
+
+            mon = threading.Thread(target=_monitor, daemon=True)
+            mon.start()
+
+            # 프로세스 종료 대기 (스레드풀에서 → 이벤트 루프 비차단)
+            rc = await loop.run_in_executor(self._executor, proc.wait)
+            stop["stop"] = True
+            try:
+                mon.join(timeout=3)
+            except Exception:
+                pass
+            self._procs.pop(job_id, None)
+            try:
+                if logf not in (None, subprocess.DEVNULL):
+                    logf.close()
+            except Exception:
+                pass
+
+            if job.state == "cancelled":
+                await broker.push(job_id, {"kind": "log", "message": "⏹ 중단됨 — 다음 작업으로 넘어갑니다."})
+            elif rc == 0:
+                job.state = "succeeded"
+                await broker.push(job_id, {"kind": "done", "message": "completed"})
+            else:
+                job.state = "failed"
+                detail = _tail_error(logpath)
+                job.error = f"exit code {rc}" + (f" — {detail}" if detail else "")
+                msg = f"작업 실패 (exit {rc})"
+                if detail:
+                    msg += f"\n{detail}"
+                await broker.push(job_id, {"kind": "error", "message": msg})
+            job.finished_at = _now()
 
 
 runner = JobRunner()

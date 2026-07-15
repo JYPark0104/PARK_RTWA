@@ -76,6 +76,9 @@ def _build_config(payload: dict, session_dir: Path, scene_xml: Path, scene_ply: 
     ue_rows = int(simple.get("ue_rows", 4));  ue_cols = int(simple.get("ue_cols", 4))
 
     tx_positions = [list(map(float, tx["position"])) for tx in payload.get("tx_list", []) if tx.get("position")]
+    # TX별 방향(orientation) = Sionna (α,β,γ)[rad]. 프론트가 az/el → [az_rad, el_rad, 0] 로 넣어줌.
+    tx_orientations = [list(map(float, (tx.get("orientation") or [0.0, 0.0, 0.0])))[:3]
+                       for tx in payload.get("tx_list", []) if tx.get("position")]
     if not tx_positions:
         raise ValueError("batch RT: TX 가 하나 이상 필요합니다.")
 
@@ -114,14 +117,19 @@ def _build_config(payload: dict, session_dir: Path, scene_xml: Path, scene_ply: 
         rx_xy = [[float(p[0]), float(p[1])] for p in rc["positions"]]
         rx_height = 1.5
     else:
-        # grid 등 다른 방식: (x,y) 평면 격자
+        # grid: (x,y) 평면 격자 / facade(O2I): 벽면 3D 좌표(z 보존, 지면 스냅 안 함)
         from ..jobs.pipeline_executor import _resolve_rx_positions, _build_rx_placement_dict
-        pl = _build_rx_placement_dict(rg, rc, scene_ply=scene_ply)
+        pl = _build_rx_placement_dict(rg, rc, scene_ply=scene_ply,
+                                      scene_xml=scene_xml, session_dir=session_dir)
         arr = _resolve_rx_positions(pl)
-        rx_xy = [[float(x), float(y)] for x, y, *_ in arr]
+        if rg.get("method") == "facade":
+            # O2I: 벽면 높이(z)를 그대로 유지 → 엔진(get_adaptive_rx_positions)이 3D 로 인식해 스냅 안 함
+            rx_xy = [[float(x), float(y), float(z)] for x, y, z in arr]
+        else:
+            rx_xy = [[float(x), float(y)] for x, y, *_ in arr]
         rx_height = 1.5
-    # ground_grid 가 아닌 방식도 설치 최대 높이 적용 (지면 스냅 후 높이 기준)
-    if max_height is not None and rg.get("method") != "ground_grid" and rx_xy:
+    # ground_grid/facade 가 아닌 방식만 설치 최대 높이(지면 스냅 후 높이) 필터 적용
+    if max_height is not None and rg.get("method") not in ("ground_grid", "facade") and rx_xy:
         try:
             rx_xy = filter_xy_by_ground_height(ground_src, rx_xy, max_height, rx_height=rx_height)
         except Exception:
@@ -140,6 +148,7 @@ def _build_config(payload: dict, session_dir: Path, scene_xml: Path, scene_ply: 
     cfg.rt_mode = "batch_rx"
     cfg.batch_size = int(rt.get("batch_size", 50) or 50)
     cfg.tx_positions = tx_positions
+    cfg.tx_orientations = tx_orientations if len(tx_orientations) == len(tx_positions) else [[0.0, 0.0, 0.0]] * len(tx_positions)
     cfg.rx_positions = rx_xy
     cfg.rx_height = rx_height
 
@@ -168,6 +177,17 @@ def _build_config(payload: dict, session_dir: Path, scene_xml: Path, scene_ply: 
     _xpd = float(rt.get("itu_xpd_coeff", 0.0) or 0.0)
     cfg.xpd_coefficient = min(max(_xpd, 0.0), 1.0)  # [0,1] 클램프
     cfg._xpd_coefficient_raw = _xpd
+    # 재질별 산란계수 오버라이드 {재질명: S}. (0,1) 범위 밖 값은 무시. (2026-07-06)
+    _mat_scat = rt.get("material_scattering") or {}
+    cfg.material_scattering = {}
+    if isinstance(_mat_scat, dict):
+        for _mname, _mval in _mat_scat.items():
+            try:
+                _v = float(_mval)
+            except (TypeError, ValueError):
+                continue
+            if 0.0 < _v < 1.0:
+                cfg.material_scattering[str(_mname)] = _v
     cfg.scattering_pattern = str(rt.get("scattering_pattern", "lambertian") or "lambertian")
     cfg.directive_alpha_r = int(rt.get("directive_alpha_r", 10) or 10)
     cfg.backscattering_alpha_r = int(rt.get("backscattering_alpha_r", 20) or 20)
@@ -187,6 +207,9 @@ def _build_config(payload: dict, session_dir: Path, scene_xml: Path, scene_ply: 
     cfg.num_rx_ant = ue_rows * ue_cols * pol(cfg.rx_polarization)
 
     cfg.threshold_watt = 1e-20
+    # POWER_OFFSET [dB]: RSRP/경로전력 dBm 오프셋(=유효 송신전력 기준). 기본 30 = 1W(30dBm).
+    #   2026-07-02: RT 단계(4.RT)에서 조절 가능하도록 payload["rt"]["power_offset"] 로 노출.
+    cfg.power_offset = float(rt.get("power_offset", 30.0) or 30.0)
     cfg.target_tx_index = 0
     cfg.target_rx_index = 0
     cfg.output_dir = str(out_dir)
@@ -212,6 +235,20 @@ def run_batch_rt(payload: dict, session_dir: Path, scene_xml: Path, scene_ply: P
     from agents import m5_postprocess_agent as pp  # type: ignore
     from agents import m6_viz_agent as viz_agent  # type: ignore
     from agents import m7_export_agent as export_agent  # type: ignore
+
+    # ── Fail-fast: 씬 메시(.ply)가 없으면 즉시 명확히 실패한다. ────────────────
+    # 없는 PLY 를 지면 레이캐스팅/RT 가 무한 재시도(Open3D read 실패 루프)하면,
+    # 그 구간은 emit() 체크포인트가 없어 cooperative cancel 이 닿지 않고 단일 워커를
+    # 영구 점유 → 뒤의 queued 잡이 영영 실행되지 않는 버그가 된다. 실행 전에 차단.
+    _meshes_dir = Path(session_dir) / "scene" / "meshes"
+    _plys = sorted(_meshes_dir.glob("*.ply")) if _meshes_dir.exists() else []
+    if not _plys:
+        raise FileNotFoundError(
+            f"씬 메시(.ply)를 찾을 수 없습니다: {_meshes_dir} "
+            "— 2.Scene 에서 씬을 업로드/선택한 뒤 다시 실행하세요."
+        )
+    if not Path(scene_xml).exists():
+        raise FileNotFoundError(f"scene.xml 을 찾을 수 없습니다: {scene_xml}")
 
     cfg = _build_config(payload, session_dir, scene_xml, scene_ply)
     output_paths: dict[str, str] = {}
@@ -275,6 +312,7 @@ def run_batch_rt(payload: dict, session_dir: Path, scene_xml: Path, scene_ply: P
     emit({"kind": "stage_start", "stage": "RT", "message": f"TX {num_tx}대 batch RT"})
     for t, txpos in enumerate(cfg.tx_positions):
         cfg.tx_position = tuple(txpos)
+        cfg.tx_orientation = tuple(cfg.tx_orientations[t]) if t < len(cfg.tx_orientations) else (0.0, 0.0, 0.0)
         emit({"kind": "log", "message": "=" * 56})
         emit({"kind": "log", "message": f"📡 TX {t+1}/{num_tx} → ({txpos[0]:.2f}, {txpos[1]:.2f}, {txpos[2]:.2f})"})
         emit({"kind": "log", "message": "=" * 56})
@@ -283,7 +321,11 @@ def run_batch_rt(payload: dict, session_dir: Path, scene_xml: Path, scene_ply: P
 
         pp.reset_batch()
         all_rx_positions = list(ordered_rx_positions)
-        batch_paths_list = []
+        # GPU 메모리 누수 방지(2026-07-11): Sionna Paths(=GPU 텐서 보유) 를 전 배치에 쌓아두면
+        #   배치가 많을수록(예: 13만 RX = 2596배치) GPU 메모리가 누적되어 OOM(jit_malloc) 으로
+        #   죽는다. → 배치마다 레이를 즉시 CPU(numpy)로 추출한 뒤 Paths 를 해제한다.
+        rays_by_rx: dict = {}
+        ray_counts = np.zeros(num_total_rx, dtype=int)
         scatter_points: list = []   # 이 TX 의 누적 (x, y, rsrp|null)
 
         for b in range(num_batches):
@@ -296,7 +338,8 @@ def run_batch_rt(payload: dict, session_dir: Path, scene_xml: Path, scene_ply: P
                 scene.remove(rx_name)
             batch_rx_3d = get_adaptive_rx_positions(cfg.map_ply_all or cfg.map_ply, batch_rx_xy, rx_height=cfg.rx_height, verbose=False)
             setup_multi_rx_scene(scene, cfg.tx_position, batch_rx_3d,
-                                 num_tx_ant=cfg.num_tx_ant, num_rx_ant=cfg.num_rx_ant, verbose=False)
+                                 num_tx_ant=cfg.num_tx_ant, num_rx_ant=cfg.num_rx_ant, verbose=False,
+                                 tx_orientation=cfg.tx_orientation)
             scene.tx_array = PlanarArray(num_rows=cfg.num_tx_rows, num_cols=cfg.num_tx_cols,
                                          pattern=cfg.tx_pattern, polarization=cfg.tx_polarization)
             scene.rx_array = PlanarArray(num_rows=cfg.num_rx_rows, num_cols=cfg.num_rx_cols,
@@ -308,7 +351,19 @@ def run_batch_rt(payload: dict, session_dir: Path, scene_xml: Path, scene_ply: P
             cfg.rx_positions = batch_rx_xy
             cfg.num_samples = samples_per_batch
             batch_raw, batch_paths = rt_agent.run(scene, cfg, quiet=True)
-            batch_paths_list.append((batch_paths, batch_rx_3d, list(batch_global)))
+            # 이 배치의 레이만 즉시 추출(CPU numpy) 후 GPU Paths 해제 → 배치 누적 OOM 방지
+            _rb, _rc = export_agent.extract_rays_batch(
+                [(batch_paths, batch_rx_3d, list(batch_global))],
+                num_total_rx, cfg.viz.max_rays_per_rx)
+            rays_by_rx.update(_rb)
+            ray_counts += _rc
+            del batch_paths, _rb, _rc
+            if (b + 1) % 200 == 0:   # 주기적으로 Dr.Jit GPU 캐시 정리(단편화 완화)
+                try:
+                    import drjit as _dr
+                    _dr.flush_malloc_cache()
+                except Exception:
+                    pass
             stats = pp.run_batch(raw_data=batch_raw, batch_rx_positions=batch_rx_xy,
                                  config=cfg, batch_idx=b + 1, quiet=True)
 
@@ -390,8 +445,7 @@ def run_batch_rt(payload: dict, session_dir: Path, scene_xml: Path, scene_ply: P
             emit({"kind": "log", "message": f"📍 Target RX {cfg.target_rx_index}: "
                                             f"유효 경로 {len(tr['tau'])}개 | RSRP: {tr['total_rsrp_dbm']:.2f} dBm"})
 
-        rays_by_rx, ray_counts = export_agent.extract_rays_batch(
-            batch_paths_list, num_total_rx, cfg.viz.max_rays_per_rx)
+        # rays_by_rx / ray_counts 는 위 배치 루프에서 이미 누적됨 (배치별 즉시 추출)
         per_tx_rays.append(rays_by_rx)
         per_tx_ray_counts.append(ray_counts)
         if t == target_tx:
@@ -409,9 +463,12 @@ def run_batch_rt(payload: dict, session_dir: Path, scene_xml: Path, scene_ply: P
     if intg_mode:
         emit({"kind": "stage_start", "stage": "Intg", "progress": 1.0 - VIZ_FRAC})
         try:
-            from .intg.intg_writer import build_superset
+            # 스트리밍 방식(2026-07-14): 큰 path_* [T,R,K] 배열을 RAM 에 통째로 올리지 않기 위해
+            # '작은 dict(build_superset_small)'만 먼저 만든다. 큰 배열은 저장 단계에서
+            # stream_write_superset 이 1개씩 흘려 쓴다 → 130k RX 도 OOM 없음.
+            from .intg.intg_writer import build_superset_small
             from .intg import superset_schema as S
-            intg_superset = build_superset(
+            intg_superset = build_superset_small(
                 per_tx_all_results=per_tx_all_results,
                 tx_positions=cfg.tx_positions,
                 rx_positions_3d=rx_pos_3d,
@@ -423,17 +480,25 @@ def run_batch_rt(payload: dict, session_dir: Path, scene_xml: Path, scene_ply: P
                 rng_seed=cfg.seed,
                 max_rays_cap=cfg.viz.max_rays_per_rx,
             )
-            problems = S.validate(intg_superset)
+            # small dict 는 path_* 키가 없으므로(저장 시 스트리밍 생성) 해당 누락 경고는 무시
+            problems = [p for p in S.validate(intg_superset)
+                        if "path_tau" not in p]
             if problems:
                 emit({"kind": "log", "message": "⚠️ superset 검증 경고: " + "; ".join(problems)})
         except Exception as exc:
-            emit({"kind": "log", "message": f"⚠️ Intg build_superset 실패(계속): {type(exc).__name__}: {exc}"})
+            emit({"kind": "log", "message": f"⚠️ Intg build_superset_small 실패(계속): {type(exc).__name__}: {exc}"})
             emit({"kind": "log", "message": traceback.format_exc()})
 
     emit({"kind": "stage_start", "stage": "Output1", "progress": 1.0 - VIZ_FRAC})
     _mask = intg_superset.get("rx_valid_mask") if intg_superset is not None else None
-    out1 = pp.save_output1_multi(per_tx_all_results, cfg.output_dir_channel, cfg.map_title,
-                                 config=cfg, rx_positions_3d=rx_pos_3d, rx_valid_mask=_mask)
+    if intg_mode:
+        # channel_data 도 스트리밍 저장(각 per-(TX,RX) 배열을 zip 에 1개씩) → 대용량 RX OOM 방지
+        out1 = pp.save_output1_multi_streaming(
+            per_tx_all_results, cfg.output_dir_channel, cfg.map_title,
+            config=cfg, rx_positions_3d=rx_pos_3d, rx_valid_mask=_mask)
+    else:
+        out1 = pp.save_output1_multi(per_tx_all_results, cfg.output_dir_channel, cfg.map_title,
+                                     config=cfg, rx_positions_3d=rx_pos_3d, rx_valid_mask=_mask)
     output_paths["batch_channel_npz"] = out1
     emit({"kind": "stage_end", "stage": "Output1", "message": Path(out1).name})
 
@@ -442,6 +507,7 @@ def run_batch_rt(payload: dict, session_dir: Path, scene_xml: Path, scene_ply: P
         try:
             from .intg.reshapers.to_p1a import superset_to_p1a
             from .intg import superset_schema as S
+            from .intg.intg_writer import stream_write_superset
 
             sup = intg_superset
             ts = datetime.datetime.now().strftime("%y%m%d_%H%M%S")
@@ -449,8 +515,10 @@ def run_batch_rt(payload: dict, session_dir: Path, scene_xml: Path, scene_ply: P
             intg_dir.mkdir(parents=True, exist_ok=True)
 
             # 단일 multi-TX superset NPZ (canonical 출력, 덮어쓰기 방지 타임스탬프)
+            # 스트리밍 저장(2026-07-14): small dict + 큰 path_* 배열 7개를 zip 에 1개씩 흘려 씀
+            # → peak 메모리 = 큰 배열 1개(≈T·R·K·4B). np.load 결과는 기존 savez 와 동일.
             sup_path = intg_dir / f"superset_{cfg.map_title}_{ts}.npz"
-            np.savez_compressed(sup_path, **sup)
+            stream_write_superset(str(sup_path), sup, per_tx_all_results)
             output_paths["intg_superset_npz"] = str(sup_path)
 
             # P1A 호환 뷰 (TX별 단일-TX 파일) → P1B/C/D 가 무수정으로 소비

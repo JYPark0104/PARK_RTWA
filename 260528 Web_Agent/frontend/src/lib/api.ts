@@ -76,6 +76,7 @@ export interface QueueItem {
   status: string; progress: number; current_stage: string; engine: string
   queued_at: string; started_at: string; finished_at: string; last_error: string
   elapsed_sec: number | null
+  eta_sec: number | null
   bs_rows: number; bs_cols: number; ue_rows: number; ue_cols: number
   scatter?: QueueScatter
 }
@@ -84,6 +85,21 @@ export interface QueueDashboard {
   queueing: QueueItem[]
   processing: QueueItem | null
   done: QueueItem[]
+}
+
+/** (A) 실행 전 시간 예측 응답. */
+export interface TimeEstimate {
+  available: boolean
+  reason?: string
+  total_sec?: number
+  total_std_sec?: number
+  n_records?: number
+  min_stage_samples?: number
+  basis_label?: string
+  per_stage?: Record<string, { mean_sec: number; std_sec: number; n: number; method: string }>
+  summary_text?: string
+  detail_text?: string
+  machine?: { machine_id: string; gpu_mode: string; gpu_name: string | null; n_gpu: number }
 }
 
 export interface SceneInfo {
@@ -98,6 +114,29 @@ export interface SceneInfo {
   n_faces: number
   units: string
   material_assigned?: boolean
+}
+
+export interface ExperimentPresetSummary {
+  id: string
+  name: string
+  scene_name: string
+  created_at: string
+  n_tx: number
+  rx_method: string
+  antenna: { bs_rows?: number; bs_cols?: number; ue_rows?: number; ue_cols?: number }
+}
+
+export interface MaterialInfo {
+  name: string
+  kind: 'itu' | 'custom'
+  itu_type: string | null
+  bsdf_type: string
+  shape_count: number
+  scattering_default: number
+  eps_r: number | null
+  sigma: number | null
+  xpd_coefficient: number | null
+  scattering_xml: number | null
 }
 
 export interface JobStatus {
@@ -172,6 +211,27 @@ export const apiClient = {
     const { data } = await api.get(`/sessions/${uuid}/scene_info`)
     return data
   },
+  async sceneMaterials(uuid: string, freq_ghz: number): Promise<{ freq_ghz: number; materials: MaterialInfo[] }> {
+    const { data } = await api.get(`/sessions/${uuid}/scene/materials`, { params: { freq_ghz } })
+    return data
+  },
+  // --- 실험 설정 프리셋 (3.TX/RX 저장/불러오기) ---
+  async listExperimentPresets(): Promise<{ presets: ExperimentPresetSummary[] }> {
+    const { data } = await api.get('/experiment_presets')
+    return data
+  },
+  async getExperimentPreset(id: string): Promise<any> {
+    const { data } = await api.get(`/experiment_presets/${id}`)
+    return data
+  },
+  async saveExperimentPreset(body: any): Promise<{ ok: boolean; id: string; summary: ExperimentPresetSummary }> {
+    const { data } = await api.post('/experiment_presets', body)
+    return data
+  },
+  async deleteExperimentPreset(id: string): Promise<{ deleted: boolean }> {
+    const { data } = await api.delete(`/experiment_presets/${id}`)
+    return data
+  },
   meshUrl(uuid: string, name: string) {
     return `/api/sessions/${uuid}/scene/mesh/${encodeURIComponent(name)}`
   },
@@ -241,11 +301,14 @@ export const apiClient = {
     return data
   },
   // --- Scene Skin (시각화용 텍스처 GLB, 라이브러리 1:1) ---
-  async uploadSceneSkin(name: string, file: File): Promise<{ ok: boolean; name: string; skin: string; size: number }> {
+  async uploadSceneSkin(name: string, file: File, onProgress?: (pct: number) => void): Promise<{ ok: boolean; name: string; skin: string; size: number }> {
     const fd = new FormData()
     fd.append('file', file)
     const { data } = await api.post(`/scene_library/${encodeURIComponent(name)}/skin`, fd, {
       headers: { 'Content-Type': 'multipart/form-data' }, timeout: 0,
+      onUploadProgress: (e) => {
+        if (onProgress && e.total) onProgress(Math.round((e.loaded / e.total) * 100))
+      },
     })
     return data
   },
@@ -271,8 +334,18 @@ export const apiClient = {
     const { data } = await api.post(`/sessions/${uuid}/rx_ground_grid`, params)
     return data
   },
+  async rxFacade(uuid: string, params: { z_min?: number; z_max?: number; z_distance?: number; facade_spacing?: number; facade_epsilon?: number; facade_max_normal_z?: number; x_min?: number | null; x_max?: number | null; y_min?: number | null; y_max?: number | null; count_only?: boolean }): Promise<{
+    positions?: Coord3[]; count: number; z_layers: number[]; materials: string[]
+  }> {
+    const { data } = await api.post(`/sessions/${uuid}/rx_facade`, params)
+    return data
+  },
   async submitJob(uuid: string, payload: any): Promise<JobStatus> {
     const { data } = await api.post(`/sessions/${uuid}/job`, payload)
+    return data
+  },
+  async estimateJob(uuid: string, payload: any, rx_count: number | null): Promise<TimeEstimate> {
+    const { data } = await api.post(`/sessions/${uuid}/estimate`, { payload, rx_count })
     return data
   },
   async getJob(jobId: string): Promise<JobStatus> {

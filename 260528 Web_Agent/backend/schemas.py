@@ -27,7 +27,7 @@ class TXConfig(BaseModel):
 class RXGridConfig(BaseModel):
     """자동 RX 그리드 (4 method 중 하나)."""
 
-    method: Literal["grid", "explicit", "radial", "street", "ground_grid"] = "grid"
+    method: Literal["grid", "explicit", "radial", "street", "ground_grid", "facade"] = "grid"
 
     # grid
     x_start: float | None = None
@@ -45,6 +45,22 @@ class RXGridConfig(BaseModel):
     rx_height: float | None = None         # 지면으로부터 RX 높이 (m)
     raycasting_z: float | None = None      # 레이 시작 높이 (None=자동: bbox 최고점+10)
     max_height: float | None = None        # 지면고도+rx_height 가 이 값 초과면 RX 제거 (None=제한없음)
+    spacing: float | None = None           # 격자 간격(m, 정사각). 지정 시 grid_n 대신 이 간격으로 배치
+
+    # facade (O2I, 건물 벽면): z=k 평면과 건물 수직면의 교선을 따라 RX 배치.
+    #   벽 바깥 법선 방향으로 epsilon(m) 이격. host 건물/재질/법선/높이층을 메타로 기록.
+    #   (재질 무관: 모든 건물 오브젝트의 수직면 대상)
+    z_min: float | None = None            # 최저 높이 [m]
+    z_max: float | None = None            # 최대 높이 [m]
+    z_distance: float | None = None       # 높이 간격 [m] (z_min, z_min+z_distance, ...)
+    facade_spacing: float | None = None   # 컨투어를 따라 RX 간격 [m]
+    facade_epsilon: float | None = None   # 벽 바깥 이격 거리 [m] (표면 self-occlusion 방지)
+    facade_max_normal_z: float | None = None  # |face normal_z|>이 값이면 수평면(지붕/지면)으로 배제
+    # facade XY 경계(bounding region): 4개 모두 주어지면 그 사각형 안 벽면만, None 이면 맵 전체
+    facade_x_min: float | None = None
+    facade_x_max: float | None = None
+    facade_y_min: float | None = None
+    facade_y_max: float | None = None
 
     # explicit
     x_coords: list[float] | None = None
@@ -149,6 +165,9 @@ class RTConfig(BaseModel):
 
     itu_scattering_coeff: float = 0.2
     itu_xpd_coeff: float = 0.5
+    # 재질별 산란계수 오버라이드 {재질명: S}. 비어있으면 전역 itu_scattering_coeff 사용.
+    #   3.TX/RX 'Material Properties' 섹션에서 설정. (2026-07-06)
+    material_scattering: dict[str, float] = {}
 
     # --- TX 배치 ---
     tx_ground_offset_m: float = 2.0   # 클릭 지점 지면으로부터 TX 이격 높이 (m)
@@ -160,6 +179,10 @@ class RTConfig(BaseModel):
     pathsolver_diffraction_lit_region: bool = True
     num_samples: int = 100000          # samples_per_src
     max_num_paths: int = 10000         # max_num_paths_per_src
+    # POWER_OFFSET [dB]: RSRP/경로전력(dBm) = 10log10(|a|^2) + power_offset.
+    #   Sionna cir() |a|^2 은 TX power 미포함 순수 채널이득 → 이 값이 유효 송신전력 기준[dBm].
+    #   기본 30 dBm(=1W). batch/intg 엔진(m5 후처리)에서 사용. (2026-07-02 추가)
+    power_offset: float = 30.0
     #   RadioMaterial
     relative_permittivity: float = 5.24
     conductivity: float = 0.0462

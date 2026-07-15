@@ -52,3 +52,24 @@ superset 가드는 '추가' 폭증만 막을 뿐 누적 자체는 막지 못함.
 3. `build_superset` → `<session>/Batch_RT_Results/Intg_Results/superset_<title>_<ts>.npz` (canonical)
 4. `superset_to_p1a` → 같은 폴더에 `Area{t+1}_{freq}GHz_Rays_ALL_RXs.npz` (TX별, P1B/C/D 무수정 소비)
 5. viz/hitmap/export 는 batch 와 동일 경로 재사용
+
+## 대용량 RX 스트리밍 저장 (2026-07-14, OOM 방지)
+
+130k RX 급 Intg 잡에서 `build_superset` 가 7개의 큰 `path_* [T,R,K]` 배열을 한 dict 에
+통째로 올려(수백 GB) **OOM-kill(SIGKILL)** 로 장시간 RT 결과가 날아가던 문제 해결.
+
+- **원인**: `path_tau/power/phi_r/phi_t/theta_r/theta_t/los_flag` 7개 `[T,R,K]` (T=18·R=130k·K≈4092)
+  ≈ 268GB 를 동시 할당. (ray-level `[T,R,P]` 는 P≈8 로 작음, rsrp/공분산은 m5 선계산 → 무관)
+- **해결(경로 A: 둘 다 유지 + 스트리밍 생성, 소비자 변경 0)**:
+  - `build_superset_small()` : 큰 `path_*` 7개를 뺀 나머지 전부 계산. `rx_valid_mask` 는
+    원본 `r["tau"]` 로 판정(큰 배열 불필요, 값 동일).
+  - `stream_write_superset()` : small dict + 큰 `path_*` 배열을 zip 에 **1개씩** 흘려 씀
+    (`zipfile ZIP_DEFLATED` + `numpy.lib.format.write_array`, `.tmp`→`os.replace`).
+    peak 메모리 = 큰 배열 1개 (≈ T·R·K·4B).
+  - `m5.save_output1_multi_streaming()` : `channel_data_*.npz` 도 per-(TX,RX) 배열을 1개씩 흘려 씀.
+- **출력 불변 보장(검증 완료)**: `superset_*.npz`(32키) · `AreaX_*_Rays_ALL_RXs.npz`(P1A 뷰) ·
+  `channel_data_*.npz`(45키) 모두 기존 `build_superset`+`savez` / `save_output1_multi` 와
+  키·shape·dtype·값 **완전 동일**. 소비자(P1B/C/D, RX Inspector, Scenario, merge_supersets) 무수정.
+- **배선**: `batch_runner.py` Intg 스테이지 → `build_superset_small` → `stream_write_superset`,
+  Output1 은 `intg_mode` 시 `save_output1_multi_streaming` 사용. `superset_to_p1a` 는 ray-level 키만
+  쓰므로 small dict 로 정상 동작. `validate` 는 small dict 의 `path_tau` 누락 경고만 필터.

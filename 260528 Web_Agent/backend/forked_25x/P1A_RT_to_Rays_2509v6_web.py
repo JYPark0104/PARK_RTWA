@@ -319,6 +319,9 @@ class P1A_Config:
     ITU_TARGET_MATERIALS = ("ceiling_board", "concrete", "glass")
     ITU_SCATTERING_COEFF = 0.2
     ITU_XPD_COEFF = 0.5
+    # 재질별 산란계수 오버라이드 {재질명: S}. 예: {"itu_concrete":0.4,"itu_glass":0.2}
+    #   (2026-07-06: 재질별 산란계수 GUI 지원. 비어있으면 ITU_SCATTERING_COEFF 전역값 사용)
+    ITU_MATERIAL_SCATTERING: dict = {}
     
     # TR 38.901 Channel Model Parameters (3GPP TR 38.901 v16.1.0 Table 7.5-6 UMa scenario)
     TR38901_C_ZSA = 7     # Cluster ZSA (Zenith Spread of Arrival) [deg]
@@ -649,18 +652,30 @@ class Scene:
         if xpd_coeff is None:
             xpd_coeff = p1a_config.ITU_XPD_COEFF
         
+        # 재질별 산란계수 오버라이드 {재질명: S} (2026-07-06). 없으면 전역 s_coeff.
+        mat_over = getattr(p1a_config, "ITU_MATERIAL_SCATTERING", None) or {}
+
+        def _pick_s(rm):
+            rm_name = getattr(rm, "name", None) or f"itu_{rm.itu_type}"
+            v = mat_over.get(rm_name, mat_over.get(f"itu_{rm.itu_type}", s_coeff))
+            try:
+                v = float(v)
+            except (TypeError, ValueError):
+                return s_coeff
+            return v if (0.0 < v < 1.0) else s_coeff
+
         n = 0
         for name in scene.objects:
             obj = scene.get(name)
             rm = getattr(obj, "radio_material", None)
 
             if isinstance(rm, ITURadioMaterial) and rm.itu_type in target:
-                rm.scattering_coefficient = s_coeff
+                rm.scattering_coefficient = _pick_s(rm)
                 rm.xpd_coefficient = xpd_coeff
                 _apply_scattering_pattern(rm)
                 n += 1
 
-        print(f"수정된 shape 수: {n}")
+        print(f"수정된 shape 수: {n} (재질별 S override: {mat_over if mat_over else '없음(전역)'})")
         return n
     
     @staticmethod

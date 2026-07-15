@@ -50,7 +50,8 @@ SESSIONS_ROOT = Path(__file__).resolve().parent.parent / "sessions"
 # RX placement 변환
 # ---------------------------------------------------------------------------
 def _build_rx_placement_dict(
-    rx_grid: dict | None, rx_clicks: dict | None, scene_ply: "Path | None" = None
+    rx_grid: dict | None, rx_clicks: dict | None, scene_ply: "Path | None" = None,
+    scene_xml: "Path | None" = None, session_dir: "Path | None" = None,
 ) -> dict:
     """Pydantic RXGridConfig 또는 RXClickConfig → 25* AREA_CONFIGS 형식 rx_placement."""
 
@@ -87,6 +88,33 @@ def _build_rx_placement_dict(
             spacing=(float(rx_grid["spacing"]) if rx_grid.get("spacing") not in (None, "") else None),
         )
         return {"method": "points", "points": pts}
+    if method == "facade":
+        # [O2I] 건물 외벽(수직면) RX: z=k 평면과 건물 메시의 교선을 따라 배치.
+        #   벽 바깥 법선으로 epsilon 이격. host 건물/재질/법선/높이층 메타는 사이드카로 저장.
+        from ..rt_agent_park2.facade import compute_facade_rx, save_facade_metadata
+        if scene_xml is None:
+            raise ValueError("facade 방식에는 scene.xml 경로가 필요합니다.")
+        def _fx(key):
+            v = rx_grid.get(key, None)
+            return float(v) if v is not None and v != "" else None
+        res = compute_facade_rx(
+            scene_xml,
+            z_min=float(rx_grid.get("z_min") if rx_grid.get("z_min") is not None else 1.0),
+            z_max=float(rx_grid.get("z_max") if rx_grid.get("z_max") is not None else 30.0),
+            z_distance=float(rx_grid.get("z_distance") if rx_grid.get("z_distance") is not None else 3.0),
+            spacing=float(rx_grid.get("facade_spacing") if rx_grid.get("facade_spacing") is not None else 5.0),
+            epsilon=float(rx_grid.get("facade_epsilon") if rx_grid.get("facade_epsilon") is not None else 0.3),
+            max_normal_z=float(rx_grid.get("facade_max_normal_z") if rx_grid.get("facade_max_normal_z") is not None else 0.5),
+            x_min=_fx("facade_x_min"), x_max=_fx("facade_x_max"),
+            y_min=_fx("facade_y_min"), y_max=_fx("facade_y_max"),
+            max_points=None,   # 실제 잡: 선택 영역의 RX 를 전부 배치(미리보기용 20만 캡을 적용하지 않음)
+        )
+        # 메타데이터 사이드카 저장 (penetration 후처리용). 덮어쓰기 금지: timestamp.
+        if session_dir is not None:
+            import datetime
+            ts = datetime.datetime.now().strftime("%y%m%d_%H%M%S")
+            save_facade_metadata(Path(session_dir) / "P1A_RT_Results", res, ts)
+        return {"method": "points", "points": res["points"]}
     if method == "grid":
         return {
             "method": "grid",
@@ -173,26 +201,15 @@ def _resolve_rx_positions(rx_placement: dict) -> np.ndarray:
 # ---------------------------------------------------------------------------
 # Pipeline executor (worker)
 # ---------------------------------------------------------------------------
-def execute_pipeline(job: JobState, emit: Callable[[dict], None]) -> dict:
-    """JobRunner에 등록되는 worker.
+def execute_pipeline(session_uuid: str, runner_payload: dict, emit: Callable[[dict], None]) -> dict:
+    """파이프라인 실행 본체 (자식 프로세스에서 호출됨).
 
-    payload (dict):
-        session_uuid: str
-        tx_list: [{position, orientation, name}]
-        rx_grid: RXGridConfig | None
-        rx_clicks: RXClickConfig | None
-        antenna: AntennaConfig (Pydantic .dict())
-        rt: RTConfig (.dict())
-        metrics: MetricSelection (.dict())
+    session_uuid   : 세션 UUID
+    runner_payload : 제출 시 payload (디스크 session_config.json 이 있으면 그것을 우선 사용)
+    emit           : 이벤트 콜백
     """
-
-    # JobRunner가 payload를 별도로 보관하지만, 여기서는 closure로 받지 못하므로
-    # job.output_paths에 임시 저장한 payload를 사용한다.
-    from .job_runner import runner as _runner
-    runner_payload = _runner._payloads.get(job.job_id, ("", {}))[1]
-    session_uuid = (runner_payload or {}).get("session_uuid")
     if not session_uuid:
-        raise RuntimeError(f"No payload for job {job.job_id}")
+        raise RuntimeError("execute_pipeline: session_uuid 가 비어 있습니다.")
 
     session_dir = SESSIONS_ROOT / session_uuid
 
@@ -287,7 +304,7 @@ def execute_pipeline(job: JobState, emit: Callable[[dict], None]) -> dict:
         _scene_ply_arg = [str(p) for p in _all_plys] if _all_plys else (_meshes_dir / "scene_mesh.ply")
         rx_placement = _build_rx_placement_dict(
             payload.get("rx_grid"), payload.get("rx_clicks"),
-            scene_ply=_scene_ply_arg,
+            scene_ply=_scene_ply_arg, scene_xml=scene_xml, session_dir=session_dir,
         )
         area_configs = {
             "area_99": {
@@ -299,9 +316,6 @@ def execute_pipeline(job: JobState, emit: Callable[[dict], None]) -> dict:
 
         n_stages = len(plan.stages_ordered)
         for i, stage_id in enumerate(plan.stages_ordered):
-            if job.state == "cancelled":
-                emit({"kind": "log", "message": "cancelled by user"})
-                return {"output_paths": output_paths}
             progress = i / max(n_stages, 1)
             emit({"kind": "stage_start", "stage": stage_id, "progress": progress})
             try:
@@ -326,6 +340,8 @@ def execute_pipeline(job: JobState, emit: Callable[[dict], None]) -> dict:
                             "PATHSOLVER_SYNTHETIC_ARRAY": rt.get("pathsolver_synthetic_array", False),
                             "ITU_SCATTERING_COEFF": rt.get("itu_scattering_coeff", 0.2),
                             "ITU_XPD_COEFF": rt.get("itu_xpd_coeff", 0.5),
+                            # 재질별 산란계수 오버라이드 {재질명: S} (2026-07-06)
+                            "ITU_MATERIAL_SCATTERING": rt.get("material_scattering", {}) or {},
                             # PARK_2 config.yaml 이식 (고급 옵션)
                             "PATHSOLVER_DIFFRACTION": rt.get("pathsolver_diffraction", False),
                             "PATHSOLVER_EDGE_DIFFRACTION": rt.get("pathsolver_edge_diffraction", False),
@@ -457,50 +473,75 @@ class JobCancelled(Exception):
     """협력적 중단 신호 — emit 시점에 job.state == 'cancelled' 면 발생."""
 
 
-def _pipeline_worker(job: JobState, emit: Callable[[dict], None]) -> dict:
-    """execute_pipeline 래퍼: 세션 상태 영속화 + 협력적 중단.
-
-    - 시작 시 status=processing
-    - emit 마다 진행률을 디스크에 반영하고, 취소 요청이면 JobCancelled 발생
-      (다음 stage/batch 경계에서 정지)
-    - 완료/실패/취소를 세션 메타에 기록
+def run_job_child(session_uuid: str) -> int:
+    """자식 프로세스 진입점: 파이프라인을 실행하고 이벤트를 세션 폴더의
+    `_job_events.jsonl` 로 append 한다. 중단은 부모의 프로세스 kill 로 처리하므로
+    협력 취소 로직은 없다. 반환: 0=성공, 1=실패.
     """
-    from .job_runner import runner as _runner
-    from .queue_store import make_store
+    import io as _io
+    import json as _json
+    import traceback
+    from .queue_store import make_store, load_session_config
+    from ..time_estimator import StageTimer, record_run
+
+    sdir = SESSIONS_ROOT / session_uuid
+    evpath = sdir / "_job_events.jsonl"
+    try:
+        evf = _io.open(evpath, "a", encoding="utf-8")
+    except Exception:
+        evf = None
+
+    def _write_ev(ev: dict) -> None:
+        if evf is None:
+            return
+        try:
+            evf.write(_json.dumps(ev, ensure_ascii=False) + "\n")
+            evf.flush()
+        except Exception:
+            pass
 
     store = make_store()
-    runner_payload = _runner._payloads.get(job.job_id, ("", {}))[1]
-    session_uuid = (runner_payload or {}).get("session_uuid", "")
+    payload = load_session_config(sdir) or {}
+    store.mark_processing(session_uuid)
+    timer = StageTimer()
 
-    if session_uuid:
-        store.mark_processing(session_uuid)
+    def emit(ev: dict) -> None:
+        try:
+            timer.observe(ev)
+        except Exception:
+            pass
+        if ("progress" in ev) or ev.get("kind") in ("stage_start", "stage_end"):
+            store.update_progress(session_uuid, ev.get("progress"), ev.get("stage"))
+        _write_ev(ev)
 
-    def emit2(event: dict) -> None:
-        if job.state == "cancelled":
-            raise JobCancelled()
-        if session_uuid and ("progress" in event or event.get("kind") in ("stage_start", "stage_end")):
-            store.update_progress(session_uuid, event.get("progress"), event.get("stage"))
-        emit(event)
-
+    rc = 0
     try:
-        out = execute_pipeline(job, emit2)
-        if session_uuid:
-            store.mark_done(session_uuid)
-        return out
-    except JobCancelled:
-        if session_uuid:
-            store.mark_cancelled(session_uuid)
-        emit({"kind": "log", "message": "⏹ 사용자 요청으로 중단되었습니다."})
-        return {"output_paths": {}}
+        out = execute_pipeline(session_uuid, payload, emit)
+        store.mark_done(session_uuid)
+        try:
+            record_run(payload or {}, timer)
+        except Exception:
+            pass
+        emit({"kind": "done", "message": "completed",
+              "output_paths": (out or {}).get("output_paths", {}) if isinstance(out, dict) else {}})
     except Exception as exc:  # noqa: BLE001
-        if session_uuid:
+        rc = 1
+        try:
             store.mark_failed(session_uuid, f"{type(exc).__name__}: {exc}")
-        raise
+        except Exception:
+            pass
+        emit({"kind": "error", "message": f"{type(exc).__name__}: {exc}"})
+        _write_ev({"kind": "log", "message": traceback.format_exc()})
+    finally:
+        if evf is not None:
+            try:
+                evf.close()
+            except Exception:
+                pass
+    return rc
 
 
 def register_default_worker() -> None:
-    """JobRunner에 'pipeline' kind worker로 등록."""
-
+    """JobRunner 에 'pipeline' kind 등록 (실행은 자식 프로세스 subprocess 로 이뤄짐)."""
     from .job_runner import runner
-
-    runner.register_worker("pipeline", _pipeline_worker)
+    runner.register_worker("pipeline")

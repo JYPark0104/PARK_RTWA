@@ -18,6 +18,7 @@ export function ScenePage() {
   const [editLib, setEditLib] = useState(false)
   const [newLibName, setNewLibName] = useState('')
   const [libBusy, setLibBusy] = useState(false)
+  const [skinUpload, setSkinUpload] = useState<{ name: string; pct: number } | null>(null)
   // Geo-Radio 번들 라이브러리
   const [radioLib, setRadioLib] = useState<{ name: string; n_meshes: number; materials: string[]; n_faces: number; size: number; has_xml: boolean }[]>([])
   const [radioLibSel, setRadioLibSel] = useState<string>('')
@@ -89,13 +90,14 @@ export function ScenePage() {
   async function onUploadSkin(name: string, e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
-    setLibBusy(true); setErr(null)
+    setLibBusy(true); setErr(null); setSkinUpload({ name, pct: 0 })
     try {
-      await apiClient.uploadSceneSkin(name, file)   // 대용량 GLB (timeout 0)
+      // 대용량 GLB (timeout 0) — onProgress 로 실제 업로드 % 표시
+      await apiClient.uploadSceneSkin(name, file, (pct) => setSkinUpload({ name, pct }))
       refreshLibrary()
     } catch (ex: any) {
       setErr(formatApiError(ex))
-    } finally { setLibBusy(false); e.target.value = '' }
+    } finally { setLibBusy(false); setSkinUpload(null); e.target.value = '' }
   }
 
   async function onDeleteSkin(name: string) {
@@ -290,10 +292,20 @@ export function ScenePage() {
                         : <span className="ml-2 text-xs text-slate-400">스킨 없음</span>}
                     </span>
                     <span className="flex items-center gap-1 shrink-0">
-                      {s.has_skin ? (
+                      {skinUpload?.name === s.name ? (
+                        <span className="flex items-center gap-2">
+                          <span className="inline-block w-3 h-3 rounded-full border-2 border-slate-300 border-t-emerald-500 animate-spin" />
+                          <span className="w-24 h-1.5 bg-slate-200 rounded overflow-hidden">
+                            <span className="block h-full bg-emerald-500 transition-all" style={{ width: `${skinUpload.pct}%` }} />
+                          </span>
+                          <span className="text-xs text-slate-600 w-20 text-right">
+                            {skinUpload.pct < 100 ? `업로드 ${skinUpload.pct}%` : '처리 중…'}
+                          </span>
+                        </span>
+                      ) : s.has_skin ? (
                         <button className="btn text-xs btn-secondary" disabled={libBusy} onClick={() => onDeleteSkin(s.name)}>스킨삭제</button>
                       ) : (
-                        <label className="btn text-xs btn-secondary cursor-pointer">
+                        <label className={`btn text-xs btn-secondary cursor-pointer ${libBusy ? 'opacity-50 pointer-events-none' : ''}`}>
                           스킨(.glb) 업로드
                           <input type="file" accept=".glb" className="hidden" disabled={libBusy}
                             onChange={(e) => onUploadSkin(s.name, e)} />
@@ -315,9 +327,9 @@ export function ScenePage() {
                 <span className="block text-xs text-slate-600 mb-0.5">.ply 업로드</span>
                 <input type="file" accept=".ply" onChange={onUploadLibrary} disabled={libBusy} />
               </label>
-              {libBusy && <span className="text-xs text-slate-500">처리 중...</span>}
+              {libBusy && !skinUpload && <span className="text-xs text-slate-500">처리 중...</span>}
             </div>
-            <p className="text-xs text-slate-500">※ 이름 미입력 시 파일명이 사용됩니다. 현재 .ply 만 지원합니다.</p>
+            <p className="text-xs text-slate-500">※ 이름 미입력 시 파일명이 사용됩니다. 현재 .ply 만 지원합니다. 스킨(.glb)은 대용량이라 업로드 진행률이 표시됩니다.</p>
           </div>
         )}
 

@@ -9,8 +9,11 @@ import scipy.linalg as la
 
 def get_adaptive_rx_positions(mesh_filename, rx_xy_list, rx_height=1.5, verbose=True):
     """
-    주어진 (X, Y) 리스트에 대해, 3D 맵의 지형 고도를 읽어와 
-    지면으로부터 rx_height 만큼 띄운 (X, Y, Z) 좌표 리스트를 반환합니다.
+    RX 좌표 리스트를 3D (X, Y, Z) 로 반환한다.
+
+    - 항목이 2D (X, Y): 3D 맵의 지형 고도를 읽어 지면 + rx_height 로 Z 를 계산한다(기존 동작).
+    - 항목이 3D (X, Y, Z): Z 를 그대로 보존한다(예: O2I 벽면 RX). 지면 스냅을 하지 않는다.
+      2D/3D 항목을 섞어 넣어도 각 항목별로 처리된다.
 
     mesh_filename: 단일 PLY 경로(str/Path) 또는 경로 리스트.
         Geo-Radio Env. Twin 은 재질별로 여러 PLY 로 쪼개지므로, 전부를 하나의
@@ -45,8 +48,14 @@ def get_adaptive_rx_positions(mesh_filename, rx_xy_list, rx_height=1.5, verbose=
     cast_z = (z_max + 10.0) if np.isfinite(z_max) else 1000.0
 
     rx_pos_3d_list = []
-    for i, (x, y) in enumerate(rx_xy_list):
-        ray = o3d.core.Tensor([[float(x), float(y), float(cast_z), 0, 0, -1]],
+    for i, pt in enumerate(rx_xy_list):
+        # 3D 좌표가 명시된 경우(예: O2I 벽면 RX)는 z 를 그대로 보존한다(지면 스냅 안 함).
+        # 2D (x, y) 입력은 기존과 동일하게 지면 고도 + rx_height 로 재계산한다(하위호환).
+        if len(pt) >= 3:
+            rx_pos_3d_list.append([float(pt[0]), float(pt[1]), float(pt[2])])
+            continue
+        x, y = float(pt[0]), float(pt[1])
+        ray = o3d.core.Tensor([[x, y, float(cast_z), 0, 0, -1]],
                               dtype=o3d.core.Dtype.Float32)
         ans = ray_scene.cast_rays(ray)
         hit_distance = ans['t_hit'].item()
@@ -63,7 +72,7 @@ def get_adaptive_rx_positions(mesh_filename, rx_xy_list, rx_height=1.5, verbose=
     _p(f"✅ {len(rx_pos_3d_list)}개의 Adaptive RX 좌표 추출 완료! (tri={n_tri_total}, cast_z={cast_z:.1f})")
     return rx_pos_3d_list
 
-def setup_multi_rx_scene(scene, tx_pos, rx_pos_list, num_tx_ant=4, num_rx_ant=4, verbose=True):
+def setup_multi_rx_scene(scene, tx_pos, rx_pos_list, num_tx_ant=4, num_rx_ant=4, verbose=True, tx_orientation=None):
     """
     Sionna Scene 객체에 1개의 TX와 다수의 RX를 배치하고 안테나를 설정합니다.
 
@@ -75,7 +84,11 @@ def setup_multi_rx_scene(scene, tx_pos, rx_pos_list, num_tx_ant=4, num_rx_ant=4,
     for rx_name in list(scene.receivers.keys()):
         scene.remove(rx_name)
     
-    tx = Transmitter(name="tx_main", position=tx_pos)
+    # TX 방향(orientation): Sionna Euler 각 (α,β,γ)[rad]. 지향성 패턴에서만 효과(iso 무관).
+    if tx_orientation is not None:
+        tx = Transmitter(name="tx_main", position=tx_pos, orientation=tuple(tx_orientation))
+    else:
+        tx = Transmitter(name="tx_main", position=tx_pos)
     scene.add(tx)
     
     for i, pos in enumerate(rx_pos_list):

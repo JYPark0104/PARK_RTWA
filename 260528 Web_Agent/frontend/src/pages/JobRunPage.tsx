@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { apiClient, formatApiError } from '../lib/api'
+import { apiClient, formatApiError, type TimeEstimate } from '../lib/api'
 import { useStore } from '../store/useStore'
 
 export function JobRunPage() {
@@ -23,9 +23,32 @@ export function JobRunPage() {
   const [queued, setQueued] = useState(false)
   const wsRef = useRef<WebSocket | null>(null)
 
+  // (A) 실행 전 시간 예측 — config 가 바뀔 때마다 디바운스 후 조회
+  const [est, setEst] = useState<TimeEstimate | null>(null)
+  const [estBusy, setEstBusy] = useState(false)
+
   useEffect(() => {
     return () => { wsRef.current?.close() }
   }, [])
+
+  useEffect(() => {
+    if (!session || tx.length === 0) { setEst(null); return }
+    let alive = true
+    setEstBusy(true)
+    const timer = window.setTimeout(async () => {
+      try {
+        const payload = buildPayload(session.uuid, tx, rx, antenna, rt, selected)
+        const e = await apiClient.estimateJob(session.uuid, payload, rxCount(rx))
+        if (alive) setEst(e)
+      } catch {
+        if (alive) setEst(null)
+      } finally {
+        if (alive) setEstBusy(false)
+      }
+    }, 450)
+    return () => { alive = false; window.clearTimeout(timer) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session?.uuid, tx, rx, antenna, rt, selected])
 
   async function submit() {
     if (!session) return
@@ -86,6 +109,9 @@ export function JobRunPage() {
           <div>metrics: <span className="font-mono">{selected.length}개</span></div>
           <div>coverage: <span className="font-mono">{rt.coverage_map.enabled || selected.includes('coverage_map') ? 'on' : 'off'}</span></div>
         </div>
+
+        <EstimateCard est={est} busy={estBusy} engine={rt.engine} />
+
         <div className="flex gap-3">
           <button className="btn btn-primary" disabled={busy || !session || tx.length === 0 || selected.length === 0} onClick={submit}>
             {busy ? '제출 중...' : '잡 실행'}
@@ -133,6 +159,41 @@ export function JobRunPage() {
             ))}
           </div>
         </section>
+      )}
+    </div>
+  )
+}
+
+/** (A) 실행 전 예상 소요 시간 카드. */
+function EstimateCard({ est, busy, engine }: { est: TimeEstimate | null; busy: boolean; engine: string }) {
+  const batchLike = engine === 'batch' || engine === 'intg'
+  return (
+    <div className="mb-3 rounded border border-indigo-200 bg-indigo-50 text-indigo-900 text-sm p-3">
+      <div className="flex items-center gap-2">
+        <span className="font-semibold">⏳ 예상 소요 시간</span>
+        {busy && <span className="inline-block w-3.5 h-3.5 animate-spin rounded-full border-2 border-indigo-300 border-t-indigo-600" />}
+      </div>
+      {!batchLike && (
+        <div className="text-xs text-indigo-700 mt-1">
+          현재 예측은 batch / intg RT 엔진에서 지원됩니다. (현재 엔진: <span className="font-mono">{engine}</span>)
+        </div>
+      )}
+      {batchLike && est?.available && (
+        <div className="mt-1">
+          <div className="text-lg font-bold">{est.summary_text}</div>
+          <div className="text-xs text-indigo-700 mt-0.5">{est.detail_text}</div>
+          {est.machine && (
+            <div className="text-[11px] text-indigo-500 mt-0.5 font-mono">
+              {est.machine.machine_id} · {est.machine.gpu_mode}{est.machine.gpu_name ? ` · ${est.machine.gpu_name}` : ''}
+            </div>
+          )}
+        </div>
+      )}
+      {batchLike && est && !est.available && (
+        <div className="text-xs text-indigo-700 mt-1">{est.reason || '예측 데이터 수집 중'}</div>
+      )}
+      {batchLike && !est && !busy && (
+        <div className="text-xs text-indigo-700 mt-1">TX/RX 를 배치하면 예측이 표시됩니다.</div>
       )}
     </div>
   )
@@ -199,6 +260,29 @@ function BatchProgress({ events }: { events: any[] }) {
   )
 }
 
+/** RX 개수 추정 (예측 API 힌트용). ground_grid/facade 는 미리보기로 채워진 좌표 수 사용. */
+function rxCount(rx: any): number | null {
+  const nz = Array.isArray(rx.z_values) && rx.z_values.length ? rx.z_values.length : 1
+  switch (rx.method) {
+    case 'clicks':
+      return rx.click_positions?.length ?? null
+    case 'ground_grid':
+      return rx.ground_positions?.length || null
+    case 'facade':
+      return (rx.facade_positions?.length || rx.facade_count) ?? null
+    case 'grid':
+      return rx.x_num && rx.y_num ? rx.x_num * rx.y_num * nz : null
+    case 'explicit':
+      return rx.x_num && rx.y_num ? rx.x_num * rx.y_num * nz : null
+    case 'radial':
+      return rx.radii_m?.length && rx.angles_num ? rx.radii_m.length * rx.angles_num * nz : null
+    case 'street':
+      return rx.num_points ? rx.num_points * nz : null
+    default:
+      return null
+  }
+}
+
 function buildPayload(uuid: string, tx: any[], rx: any, antenna: any, rt: any, metrics: string[]) {
   const rx_grid = rx.method === 'clicks' ? null : {
     method: rx.method,
@@ -215,11 +299,23 @@ function buildPayload(uuid: string, tx: any[], rx: any, antenna: any, rt: any, m
     grid_n: rx.grid_n, margin: rx.margin, rx_height: rx.rx_height, raycasting_z: rx.raycasting_z,
     max_height: rx.max_height,
     spacing: rx.rx_layout === 'spacing' ? rx.spacing_m : null,
+    // facade (O2I, 건물 벽면)
+    z_min: rx.z_min, z_max: rx.z_max, z_distance: rx.z_distance,
+    facade_spacing: rx.facade_spacing, facade_epsilon: rx.facade_epsilon,
+    facade_x_min: rx.method === 'facade' ? rx.facade_x_min : null,
+    facade_x_max: rx.method === 'facade' ? rx.facade_x_max : null,
+    facade_y_min: rx.method === 'facade' ? rx.facade_y_min : null,
+    facade_y_max: rx.method === 'facade' ? rx.facade_y_max : null,
   }
   const rx_clicks = rx.method === 'clicks' ? { positions: rx.click_positions } : null
   return {
     session_uuid: uuid,
-    tx_list: tx,
+    // TX az/el(deg) → Sionna orientation (α=az, β=el, γ=0) [radian]. 백엔드가 Transmitter 에 적용.
+    tx_list: tx.map((t: any) => ({
+      position: t.position,
+      name: t.name,
+      orientation: [((t.az_deg ?? 0) * Math.PI) / 180, ((t.el_deg ?? 0) * Math.PI) / 180, 0],
+    })),
     rx_grid,
     rx_clicks,
     antenna: { mode: 'simple', simple: antenna },

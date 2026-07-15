@@ -71,27 +71,51 @@ def run(config: RT_Config):
 
     # ── 3. 라디오 재질 설정 ───────────────────────────────────
     from sionna.rt import LambertianPattern, DirectivePattern, BackscatteringPattern
+    from sionna.rt.radio_materials import ITURadioMaterial
 
-    mat = list(scene.radio_materials.values())[0]
-    mat.scattering_coefficient = config.scattering_coefficient
-    mat.xpd_coefficient        = config.xpd_coefficient
+    def _make_pattern():
+        # 재질마다 독립 인스턴스를 생성해 상태 공유를 피한다.
+        pattern_name = config.scattering_pattern.lower()
+        if pattern_name == "directive":
+            return DirectivePattern(alpha_r=config.directive_alpha_r)
+        elif pattern_name == "backscattering":
+            return BackscatteringPattern(
+                alpha_r=config.backscattering_alpha_r,
+                alpha_i=config.backscattering_alpha_i,
+                lambda_=config.backscattering_lambda
+            )
+        return LambertianPattern()
 
-    # 산란 패턴 선택
-    pattern_name = config.scattering_pattern.lower()
-    if pattern_name == "directive":
-        mat.scattering_pattern = DirectivePattern(alpha_r=config.directive_alpha_r)
-    elif pattern_name == "backscattering":
-        mat.scattering_pattern = BackscatteringPattern(
-            alpha_r=config.backscattering_alpha_r,
-            alpha_i=config.backscattering_alpha_i,
-            lambda_=config.backscattering_lambda
-        )
-    else:
-        mat.scattering_pattern = LambertianPattern()
+    # 버그 수정 (2026-07-06): 기존 코드는 list(scene.radio_materials.values())[0]
+    #   로 '첫 번째 재질 하나'에만 산란계수/패턴을 적용했다. 다중 재질 씬(예:
+    #   itu_glass/itu_concrete/irr_glass)에서는 다수 재질(concrete 813 shapes 등)이
+    #   산란계수 0.0 으로 남아 확산 산란이 누락됐다.
+    #   → 모든 재질을 순회하며 산란계수/패턴을 적용한다.
+    #     · 재질별 오버라이드(config.material_scattering[재질명])가 있으면 그 값을 사용.
+    #     · 없으면: ITU 재질은 전역 config.scattering_coefficient, 커스텀 재질은 XML 값 보존.
+    #     (2026-07-06: 재질별 산란계수 GUI 지원)
+    mat_scat = getattr(config, "material_scattering", None) or {}
+    applied = []
+    for _name, _mat in scene.radio_materials.items():
+        _override = mat_scat.get(_name)
+        if _override is not None:
+            _mat.scattering_coefficient = float(_override)
+            _mat.xpd_coefficient        = config.xpd_coefficient
+            _mat.scattering_pattern     = _make_pattern()
+            applied.append(f"{_name}=S{float(_override):.2f}(override)")
+        elif isinstance(_mat, ITURadioMaterial):
+            _mat.scattering_coefficient = config.scattering_coefficient
+            _mat.xpd_coefficient        = config.xpd_coefficient
+            _mat.scattering_pattern     = _make_pattern()
+            applied.append(f"{_name}=S{config.scattering_coefficient:.2f}(global)")
+        else:
+            applied.append(f"{_name}=보존(XML)")  # 커스텀 재질, 오버라이드 없음
 
     print(f"   ✅ 라디오 재질 설정 완료 "
-          f"(S={config.scattering_coefficient}, Kx={config.xpd_coefficient}, "
+          f"(전역 S={config.scattering_coefficient}, Kx={config.xpd_coefficient}, "
           f"pattern={config.scattering_pattern})")
+    for _a in applied:
+        print(f"      · {_a}")
 
     # ── 4. 3D RX 좌표 계산 (지형 고도 적응형) ─────────────────
     print(f"\n🔍 3D RX 좌표 계산 중 ({len(config.rx_positions)}개 위치)...")

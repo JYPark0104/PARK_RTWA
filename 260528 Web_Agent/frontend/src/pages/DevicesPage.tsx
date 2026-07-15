@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import type { Coord3 } from '../lib/api'
-import { apiClient } from '../lib/api'
+import type { Coord3, MaterialInfo, ExperimentPresetSummary } from '../lib/api'
+import { apiClient, formatApiError } from '../lib/api'
 import { SceneViewer } from '../components/SceneViewer'
 import { useStore } from '../store/useStore'
 
@@ -21,9 +21,27 @@ export function DevicesPage() {
   const setRX = useStore((s) => s.setRX)
   const selectedMetrics = useStore((s) => s.selectedMetrics)
   const rt = useStore((s) => s.rt)
+  const setRT = useStore((s) => s.setRT)
+  const antenna = useStore((s) => s.antenna)
+  const setAntenna = useStore((s) => s.setAntenna)
+  const setTXOrient = useStore((s) => s.setTXOrient)
 
   const [mode, setMode] = useState<Mode>('tx')
   const [gridBusy, setGridBusy] = useState(false)
+  const [facadeBusy, setFacadeBusy] = useState(false)
+  const [facadeCounting, setFacadeCounting] = useState(false)   // 예상 RX 계산 중 스피너
+  const [showAntDir, setShowAntDir] = useState(false)          // 안테나 방향성 설정 패널
+  const [orientTx, setOrientTx] = useState<number | null>(null) // 방향 조절 대상 TX
+  const [gizmoScale, setGizmoScale] = useState(1)              // 방향 기즈모(화살표+구체) 크기 배율
+  const [markerScale, setMarkerScale] = useState(1)   // 마커(구) 크기 배율 (시각용)
+  const [selectedTx, setSelectedTx] = useState<number | null>(null)  // 리스트 클릭 선택(지속)
+  const [hoverTx, setHoverTx] = useState<number | null>(null)        // 3D/리스트 호버(일시)
+  const [showTxLabels, setShowTxLabels] = useState(true)             // 3D TX 번호 라벨 표시
+  const [materials, setMaterials] = useState<MaterialInfo[]>([])  // 재질 특성 목록
+  const [showLoad, setShowLoad] = useState(false)                 // 설정 불러오기 모달
+  const [presets, setPresets] = useState<ExperimentPresetSummary[]>([])
+  const [presetBusy, setPresetBusy] = useState(false)
+  const [saveMsg, setSaveMsg] = useState<string | null>(null)
   const [snapBusy, setSnapBusy] = useState(false)
   const [showTxWarn, setShowTxWarn] = useState(false)
   // TX 좌표 직접 입력 (재현 가능한 정확 배치)
@@ -63,6 +81,36 @@ export function DevicesPage() {
     navigate('/rt')
   }
 
+  async function previewFacade() {
+    if (!session) return
+    let cnt = rx.facade_count
+    if (cnt == null) {
+      try {
+        const c = await apiClient.rxFacade(session.uuid, {
+          z_min: rx.z_min, z_max: rx.z_max, z_distance: rx.z_distance,
+          facade_spacing: rx.facade_spacing, facade_epsilon: rx.facade_epsilon, count_only: true,
+          x_min: rx.facade_x_min, x_max: rx.facade_x_max,
+          y_min: rx.facade_y_min, y_max: rx.facade_y_max,
+        })
+        cnt = c.count; setRX({ facade_count: c.count })
+      } catch { /* ignore */ }
+    }
+    if (cnt != null && cnt > 20000) {
+      const ok = window.confirm(`현재 ${cnt.toLocaleString()}개의 RX가 생성됩니다. 렌더링에 시간이 오래 걸리거나 브라우저가 느려질 수 있습니다. 띄우시겠습니까?`)
+      if (!ok) return
+    }
+    setFacadeBusy(true)
+    try {
+      const r = await apiClient.rxFacade(session.uuid, {
+        z_min: rx.z_min, z_max: rx.z_max, z_distance: rx.z_distance,
+        facade_spacing: rx.facade_spacing, facade_epsilon: rx.facade_epsilon,
+        x_min: rx.facade_x_min, x_max: rx.facade_x_max,
+        y_min: rx.facade_y_min, y_max: rx.facade_y_max,
+      })
+      setRX({ facade_positions: r.positions ?? [], facade_count: r.count })
+    } catch { /* ignore */ } finally { setFacadeBusy(false) }
+  }
+
   async function previewGroundGrid() {
     if (!session) return
     setGridBusy(true)
@@ -96,15 +144,120 @@ export function DevicesPage() {
     apiClient.sceneInfo(session.uuid).then(setSceneInfo).catch(() => {})
   }, [session?.uuid])
 
+  // 재질 특성 로드 (εr/σ 는 주파수 의존 → rt.frequency_ghz 변경 시 갱신).
+  // 아직 값이 없는 재질은 산란계수 기본값(문헌/ITU=문헌, custom=XML값)으로 초기화.
+  useEffect(() => {
+    if (!session) return
+    apiClient.sceneMaterials(session.uuid, rt.frequency_ghz).then((r) => {
+      setMaterials(r.materials)
+      const cur = useStore.getState().rt.material_scattering || {}
+      const next: Record<string, number> = { ...cur }
+      let changed = false
+      for (const m of r.materials) {
+        if (next[m.name] == null) { next[m.name] = defScat(m); changed = true }
+      }
+      if (changed) setRT({ material_scattering: next })
+    }).catch(() => {})
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session?.uuid, rt.frequency_ghz])
+
+  const setMatS = (name: string, v: number) => {
+    const cur = useStore.getState().rt.material_scattering || {}
+    setRT({ material_scattering: { ...cur, [name]: v } })
+  }
+  const resetMatDefaults = () => {
+    const next: Record<string, number> = {}
+    for (const m of materials) next[m.name] = defScat(m)
+    setRT({ material_scattering: next })
+  }
+
+  // ── 실험 설정(TX/안테나/RX) 저장·불러오기 ──
+  async function saveSetting() {
+    if (!session) return
+    const name = window.prompt('이 실험 설정의 이름을 입력하세요',
+      `${session.scene_name || 'scene'} 설정`)
+    if (!name) return
+    setPresetBusy(true); setSaveMsg(null)
+    try {
+      await apiClient.saveExperimentPreset({
+        name, scene_name: session.scene_name || '',
+        tx, antenna, rx,
+        rt: {
+          tx_pattern: rt.tx_pattern, tx_polarization: rt.tx_polarization,
+          rx_pattern: rt.rx_pattern, rx_polarization: rt.rx_polarization,
+          material_scattering: rt.material_scattering,
+          scattering_pattern: rt.scattering_pattern,
+          directive_alpha_r: rt.directive_alpha_r,
+          backscattering_alpha_r: rt.backscattering_alpha_r,
+          backscattering_alpha_i: rt.backscattering_alpha_i,
+          backscattering_lambda: rt.backscattering_lambda,
+          tx_ground_offset_m: rt.tx_ground_offset_m,
+        },
+      })
+      setSaveMsg('✅ 설정을 저장했습니다.')
+    } catch (e) { setSaveMsg('저장 실패: ' + formatApiError(e)) }
+    finally { setPresetBusy(false) }
+  }
+  async function openLoad() {
+    setShowLoad(true); setPresetBusy(true)
+    try { const r = await apiClient.listExperimentPresets(); setPresets(r.presets) }
+    catch { setPresets([]) } finally { setPresetBusy(false) }
+  }
+  async function applyPreset(id: string) {
+    setPresetBusy(true)
+    try {
+      const d = await apiClient.getExperimentPreset(id)
+      clearTX()
+      for (const t of (d.tx || [])) addTXFull(t)
+      if (d.antenna && Object.keys(d.antenna).length) setAntenna(d.antenna)
+      if (d.rx && Object.keys(d.rx).length) setRX(d.rx)
+      if (d.rt && Object.keys(d.rt).length) setRT(d.rt)
+      setShowLoad(false)
+      setSaveMsg(`📂 '${d.name}' 설정을 불러왔습니다.`)
+    } catch { /* ignore */ } finally { setPresetBusy(false) }
+  }
+  async function deletePreset(id: string) {
+    if (!window.confirm('이 설정을 삭제할까요?')) return
+    try {
+      await apiClient.deleteExperimentPreset(id)
+      setPresets((ps) => ps.filter((x) => x.id !== id))
+    } catch { /* ignore */ }
+  }
+
   // ground_grid 가 선택되면 씬 경계 → 레이캐스팅 지면 격자를 자동 미리보기.
   // (PARK_2 방식: boundary → 하늘에서 ↓ ray casting → 지면 hit 위치에만 RX, 지면+높이)
   useEffect(() => {
     if (!session || !sceneInfo) return
     if (rx.method !== 'ground_grid') return
-    previewGroundGrid()
+    const t = setTimeout(() => { previewGroundGrid() }, 250)  // 스윕 중 요청 폭주 방지(손 뗀 뒤 1회)
+    return () => clearTimeout(t)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session?.uuid, sceneInfo, rx.method, rx.grid_n, rx.margin, rx.rx_height, rx.max_height,
       rx.x_start, rx.x_stop, rx.y_start, rx.y_stop])
+
+  // facade(O2I): 파라미터 변경 시 이전 결과만 무효화(스테일 표시). 실제 개수 계산은 '벽면 RX 수 계산'
+  //   버튼으로만 실행 → 슬라이더 드래그 중 수백번 백엔드 호출로 서버가 터지는 문제 방지. (2026-07-07)
+  useEffect(() => {
+    if (rx.method !== 'facade') return
+    setRX({ facade_positions: [], facade_count: null })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rx.method, rx.z_min, rx.z_max, rx.z_distance, rx.facade_spacing, rx.facade_epsilon,
+      rx.facade_x_min, rx.facade_x_max, rx.facade_y_min, rx.facade_y_max])
+
+  async function countFacade() {
+    if (!session) return
+    setFacadeCounting(true)
+    try {
+      const r = await apiClient.rxFacade(session.uuid, {
+        z_min: rx.z_min, z_max: rx.z_max, z_distance: rx.z_distance,
+        facade_spacing: rx.facade_spacing, facade_epsilon: rx.facade_epsilon, count_only: true,
+        x_min: rx.facade_x_min, x_max: rx.facade_x_max,
+        y_min: rx.facade_y_min, y_max: rx.facade_y_max,
+      })
+      setRX({ facade_count: r.count })
+    } catch { setRX({ facade_count: null }) }
+    finally { setFacadeCounting(false) }
+  }
 
   // grid / ground_grid 진입 시 X/Y 범위가 bbox 밖이면 맵 전체로 초기화 (슬라이더 기본값)
   useEffect(() => {
@@ -118,6 +271,23 @@ export function DevicesPage() {
     }
     if (rx.y_start < yMin || rx.y_start > yMax || rx.y_stop < yMin || rx.y_stop > yMax) {
       fix.y_start = Math.round(yMin); fix.y_stop = Math.round(yMax)
+    }
+    if (Object.keys(fix).length) setRX(fix)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rx.method, sceneInfo])
+
+  // facade(O2I) 진입 시 X/Y 경계가 bbox 밖이면 맵 전체로 초기화 (전용 필드)
+  useEffect(() => {
+    if (!sceneInfo) return
+    if (rx.method !== 'facade') return
+    const xMin = sceneInfo.aabb_min[0], xMax = sceneInfo.aabb_max[0]
+    const yMin = sceneInfo.aabb_min[1], yMax = sceneInfo.aabb_max[1]
+    const fix: any = {}
+    if (rx.facade_x_min < xMin || rx.facade_x_min > xMax || rx.facade_x_max < xMin || rx.facade_x_max > xMax) {
+      fix.facade_x_min = Math.round(xMin); fix.facade_x_max = Math.round(xMax)
+    }
+    if (rx.facade_y_min < yMin || rx.facade_y_min > yMax || rx.facade_y_max < yMin || rx.facade_y_max > yMax) {
+      fix.facade_y_min = Math.round(yMin); fix.facade_y_max = Math.round(yMax)
     }
     if (Object.keys(fix).length) setRX(fix)
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -151,6 +321,16 @@ export function DevicesPage() {
           <button className="btn btn-secondary" onClick={clearTX}>TX 모두 삭제</button>
           <button className="btn btn-secondary" onClick={() => setRX({ click_positions: [] })}>RX click 초기화</button>
           {snapBusy && <span className="text-xs text-amber-600">TX 지면 스냅 중...</span>}
+          <label className="flex items-center gap-1.5 ml-auto text-xs text-slate-600 cursor-pointer">
+            <input type="checkbox" checked={showTxLabels} onChange={(e) => setShowTxLabels(e.target.checked)} />
+            TX 번호 라벨
+          </label>
+          <div className="flex items-center gap-2 text-xs text-slate-600">
+            <span>마커 크기</span>
+            <input type="range" min={0.3} max={5} step={0.1} value={markerScale}
+              onChange={(e) => setMarkerScale(parseFloat(e.target.value))} className="w-28" />
+            <span className="font-mono w-10">{markerScale.toFixed(1)}x</span>
+          </div>
         </div>
       </section>
 
@@ -159,8 +339,12 @@ export function DevicesPage() {
           <SceneViewer
             uuid={session.uuid}
             sceneInfo={sceneInfo}
+            markerScale={markerScale}
+            highlightTxIndex={hoverTx ?? selectedTx}
+            onTxHover={setHoverTx}
+            showTxLabels={showTxLabels}
             tx={tx}
-            rx={rx.method === 'clicks' ? rx.click_positions : rx.method === 'ground_grid' ? rx.ground_positions : rxPositions}
+            rx={rx.method === 'clicks' ? rx.click_positions : rx.method === 'ground_grid' ? rx.ground_positions : rx.method === 'facade' ? rx.facade_positions : rxPositions}
             txClicked={tx.map((t) => t.clicked).filter(Boolean) as Coord3[]}
             coverageOverlay={
               rt.coverage_map.enabled || isCoverageOnly
@@ -177,6 +361,19 @@ export function DevicesPage() {
                   }
                 : undefined
             }
+            facadeRegion={rx.method === 'facade' ? {
+              x_min: rx.facade_x_min, x_max: rx.facade_x_max,
+              y_min: rx.facade_y_min, y_max: rx.facade_y_max,
+              z_min: rx.z_min, z_max: rx.z_max,
+            } : undefined}
+            regionOverlay={(rx.method === 'ground_grid' || rx.method === 'grid') ? {
+              x_min: Math.min(rx.x_start, rx.x_stop), x_max: Math.max(rx.x_start, rx.x_stop),
+              y_min: Math.min(rx.y_start, rx.y_stop), y_max: Math.max(rx.y_start, rx.y_stop),
+              z: sceneInfo.aabb_min[2],
+            } : undefined}
+            orientTxIndex={showAntDir ? orientTx : null}
+            onOrient={(idx, az, el) => setTXOrient(idx, az, el)}
+            orientScale={gizmoScale}
             onPickSurface={(p) => {
               if (mode === 'tx') placeTX(p)
               else if (mode === 'rx_click') {
@@ -188,6 +385,16 @@ export function DevicesPage() {
 
         <div className="space-y-4">
           <section className="card">
+            <div className="flex items-center justify-between">
+              <h3 className="font-semibold text-sm">실험 설정</h3>
+              <button className="btn btn-secondary text-xs px-2 py-1" onClick={openLoad} disabled={presetBusy}>
+                📂 이전 실험 setting 불러오기
+              </button>
+            </div>
+            {saveMsg && <div className="text-xs text-emerald-600 mt-1">{saveMsg}</div>}
+          </section>
+
+          <section className="card">
             <div className="flex items-start justify-between mb-2">
               <h3 className="font-semibold">TX 목록 ({tx.length})</h3>
               <button
@@ -197,6 +404,14 @@ export function DevicesPage() {
                 TX 좌표 직접 설정
               </button>
             </div>
+
+            <label className="flex justify-between items-center gap-2 text-sm">
+              <span className="text-slate-600">TX 지면 이격 [m]</span>
+              <input type="number" step="any" className="input w-24 text-right"
+                value={rt.tx_ground_offset_m}
+                onChange={(e) => { const v = parseFloat(e.target.value); if (!isNaN(v)) setRT({ tx_ground_offset_m: v }) }} />
+            </label>
+            <div className="text-[11px] text-slate-400 mb-2 mt-0.5">TX 클릭/좌표 추가 시 지면으로부터 이 높이만큼 띄워 배치합니다.</div>
 
             {showTxManual && (
               <div className="mb-3 p-2 rounded border border-slate-200 bg-slate-50 space-y-2">
@@ -232,25 +447,86 @@ export function DevicesPage() {
             )}
 
             <ul className="text-sm space-y-1 max-h-60 overflow-auto">
-              {tx.map((t, i) => (
-                <li key={i} className="flex justify-between items-center border-b py-1">
-                  <span className="font-mono text-xs">
-                    [{t.position.map((v) => v.toFixed(2)).join(', ')}]
-                  </span>
-                  <button className="btn btn-danger text-xs px-2 py-0.5" onClick={() => removeTX(i)}>삭제</button>
-                </li>
-              ))}
+              {tx.map((t, i) => {
+                const on = i === selectedTx || i === hoverTx
+                return (
+                  <li key={i}
+                    className={`flex justify-between items-center border-b py-1 px-1 rounded cursor-pointer ${on ? 'bg-amber-100 ring-1 ring-amber-400' : 'hover:bg-slate-50'}`}
+                    onClick={() => setSelectedTx(selectedTx === i ? null : i)}
+                    onMouseEnter={() => setHoverTx(i)}
+                    onMouseLeave={() => setHoverTx(null)}>
+                    <span className="flex items-center gap-2 min-w-0">
+                      <span className={`inline-flex items-center justify-center shrink-0 w-6 h-5 rounded text-[10px] font-bold ${on ? 'bg-amber-400 text-white' : 'bg-slate-200 text-slate-600'}`}>TX{i + 1}</span>
+                      <span className="font-mono text-xs truncate">[{t.position.map((v) => v.toFixed(2)).join(', ')}]</span>
+                    </span>
+                    <button className="btn btn-danger text-xs px-2 py-0.5 shrink-0"
+                      onClick={(e) => { e.stopPropagation(); removeTX(i) }}>삭제</button>
+                  </li>
+                )
+              })}
               {tx.length === 0 && <li className="text-slate-400 text-xs">TX 모드에서 표면을 클릭하세요.</li>}
             </ul>
+          </section>
+
+          <section className="card space-y-2 text-sm">
+            <h3 className="font-semibold">안테나 설정</h3>
+            <div className="flex gap-2">
+              <button className="btn btn-secondary text-xs" onClick={() => setAntenna({ bs_rows: 1, bs_cols: 1, ue_rows: 1, ue_cols: 1 })}>SISO (1×1/1×1)</button>
+              <button className="btn btn-secondary text-xs" onClick={() => setAntenna({ bs_rows: 32, bs_cols: 32, ue_rows: 4, ue_cols: 4 })}>기본 (32×32/4×4)</button>
+            </div>
+            <NumberRow label="BS rows" v={antenna.bs_rows} on={(v) => setAntenna({ bs_rows: Math.max(1, Math.round(v)) })} integer />
+            <NumberRow label="BS cols" v={antenna.bs_cols} on={(v) => setAntenna({ bs_cols: Math.max(1, Math.round(v)) })} integer />
+            <NumberRow label="UE rows" v={antenna.ue_rows} on={(v) => setAntenna({ ue_rows: Math.max(1, Math.round(v)) })} integer />
+            <NumberRow label="UE cols" v={antenna.ue_cols} on={(v) => setAntenna({ ue_cols: Math.max(1, Math.round(v)) })} integer />
+            <SelectInput label="tx_pattern" value={rt.tx_pattern} on={(v) => setRT({ tx_pattern: v })} options={PATTERN_OPTIONS} />
+            <SelectInput label="tx_polarization" value={rt.tx_polarization} on={(v) => setRT({ tx_polarization: v })} options={POLARIZATION_OPTIONS} />
+            <SelectInput label="rx_pattern" value={rt.rx_pattern} on={(v) => setRT({ rx_pattern: v })} options={PATTERN_OPTIONS} />
+            <SelectInput label="rx_polarization" value={rt.rx_polarization} on={(v) => setRT({ rx_polarization: v })} options={POLARIZATION_OPTIONS} />
+            {rt.tx_pattern !== 'iso' ? (
+              <div className="space-y-2">
+                <button className={`btn text-xs ${showAntDir ? 'btn-primary' : 'btn-secondary'}`}
+                  onClick={() => setShowAntDir((v) => !v)}>
+                  {showAntDir ? '안테나 방향성 설정 닫기' : '📡 안테나 방향성 설정'}
+                </button>
+                {showAntDir && (
+                  <div className="p-2 rounded border border-slate-200 bg-slate-50 space-y-2">
+                    <div className="text-xs text-slate-600">
+                      TX 선택 후 3D 뷰에서 방향 조절: <b>WASD</b>(A/D=방위, W/S=고각) 또는 화살표(반투명 구체) <b>드래그</b>.
+                    </div>
+                    <label className="flex items-center gap-2 text-xs text-slate-600">
+                      <span className="whitespace-nowrap">화살표 크기</span>
+                      <input type="range" min={0.1} max={3} step={0.1} value={gizmoScale}
+                        onChange={(e) => setGizmoScale(parseFloat(e.target.value))} className="flex-1" />
+                      <span className="font-mono w-8">{gizmoScale.toFixed(1)}x</span>
+                    </label>
+                    <div className="flex flex-wrap gap-1">
+                      {tx.map((_, i) => (
+                        <button key={i} className={`btn text-xs ${orientTx === i ? 'btn-primary' : 'btn-secondary'}`}
+                          onClick={() => setOrientTx(orientTx === i ? null : i)}>TX{i + 1}</button>
+                      ))}
+                      {tx.length === 0 && <span className="text-xs text-slate-400">먼저 TX를 배치하세요.</span>}
+                    </div>
+                    {orientTx != null && tx[orientTx] && (
+                      <div className="text-xs font-mono text-slate-600">
+                        TX{orientTx + 1}: azimuth {(tx[orientTx].az_deg ?? 0).toFixed(0)}° · elevation {(tx[orientTx].el_deg ?? 0).toFixed(0)}°
+                        <button className="btn btn-secondary text-[11px] ml-2 px-2 py-0.5" onClick={() => setTXOrient(orientTx, 0, 0)}>리셋</button>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="text-[11px] text-slate-400">iso(등방성)은 방향성이 없어 방향 설정이 불필요합니다.</div>
+            )}
           </section>
 
           <section className="card">
             <h3 className="font-semibold mb-2">RX 배치 방법</h3>
             <div className="flex flex-wrap gap-1 mb-3">
-              {(['grid', 'ground_grid', 'explicit', 'radial', 'street', 'clicks'] as const).map((m) => (
+              {(['grid', 'ground_grid', 'facade', 'explicit', 'radial', 'street', 'clicks'] as const).map((m) => (
                 <button key={m}
                   className={`btn text-xs ${rx.method === m ? 'btn-primary' : 'btn-secondary'}`}
-                  onClick={() => setRX({ method: m })}>{m}</button>
+                  onClick={() => setRX({ method: m })}>{m === 'facade' ? 'O2I(건물벽면)' : m}</button>
               ))}
             </div>
 
@@ -296,7 +572,7 @@ export function DevicesPage() {
                 {rx.rx_layout === 'spacing' ? (
                   <>
                     <NumberRow label="RX 간격 [m] (정사각)" v={rx.spacing_m} on={(v) => setRX({ spacing_m: Math.max(0.1, v) })} />
-                    <div className="text-[11px] text-slate-400 -mt-1">X·Y 동일 간격으로 격자 배치. 간격이 너무 작으면 자동으로 안전 간격(축당 ≤200)으로 보정됩니다.</div>
+                    <div className="text-[11px] text-slate-400 -mt-1">X·Y 동일 간격(m)으로 격자 배치. 총 후보가 100만 개를 넘을 만큼 촘촘하면 자동으로 간격을 상향합니다(그 이하면 입력 간격 그대로).</div>
                   </>
                 ) : (
                   <>
@@ -327,6 +603,65 @@ export function DevicesPage() {
                 <div className="text-xs text-slate-500">
                   후보 {rx.grid_n * rx.grid_n}개 중 지면 RX: <span className="font-mono">{rx.ground_positions.length}</span>개
                   {rx.max_height != null && <span className="text-slate-400"> (≤{rx.max_height}m)</span>}
+                </div>
+              </div>
+            )}
+
+            {rx.method === 'facade' && (
+              <div className="space-y-2 text-sm">
+                <div className="text-xs text-slate-500">
+                  건물 외벽(수직면)에 RX를 배치합니다. z=k 평면과 건물 메시의 교선을 따라
+                  벽 바깥으로 ε(m) 띄워 배치하며, host 건물·재질·법선을 기록합니다 (O2I penetration용).
+                </div>
+                <div>
+                  <div className="flex justify-between text-xs text-slate-600">
+                    <span>X 영역 (벽면 RX 대상)</span>
+                    <span className="font-mono">{(rx.facade_x_min ?? sceneInfo.aabb_min[0]).toFixed(0)} ~ {(rx.facade_x_max ?? sceneInfo.aabb_max[0]).toFixed(0)} m</span>
+                  </div>
+                  <DualRange
+                    min={Math.floor(sceneInfo.aabb_min[0])} max={Math.ceil(sceneInfo.aabb_max[0])}
+                    lo={rx.facade_x_min ?? Math.floor(sceneInfo.aabb_min[0])} hi={rx.facade_x_max ?? Math.ceil(sceneInfo.aabb_max[0])}
+                    onChange={(lo, hi) => setRX({ facade_x_min: lo, facade_x_max: hi })}
+                  />
+                </div>
+                <div>
+                  <div className="flex justify-between text-xs text-slate-600">
+                    <span>Y 영역 (벽면 RX 대상)</span>
+                    <span className="font-mono">{(rx.facade_y_min ?? sceneInfo.aabb_min[1]).toFixed(0)} ~ {(rx.facade_y_max ?? sceneInfo.aabb_max[1]).toFixed(0)} m</span>
+                  </div>
+                  <DualRange
+                    min={Math.floor(sceneInfo.aabb_min[1])} max={Math.ceil(sceneInfo.aabb_max[1])}
+                    lo={rx.facade_y_min ?? Math.floor(sceneInfo.aabb_min[1])} hi={rx.facade_y_max ?? Math.ceil(sceneInfo.aabb_max[1])}
+                    onChange={(lo, hi) => setRX({ facade_y_min: lo, facade_y_max: hi })}
+                  />
+                </div>
+                <button className="btn btn-secondary text-xs" onClick={() => setRX({
+                  facade_x_min: Math.round(sceneInfo.aabb_min[0]), facade_x_max: Math.round(sceneInfo.aabb_max[0]),
+                  facade_y_min: Math.round(sceneInfo.aabb_min[1]), facade_y_max: Math.round(sceneInfo.aabb_max[1]),
+                })}>맵 전체(bbox)</button>
+                <div className="text-[11px] text-slate-400 -mt-1">반투명 직육면체 = 이 영역·높이대(z 최저~최대)에 벽면 RX가 생성됩니다.</div>
+                <NumberRow label="z 최저 [m]" v={rx.z_min} on={(v) => setRX({ z_min: v })} />
+                <NumberRow label="z 최대 [m]" v={rx.z_max} on={(v) => setRX({ z_max: v })} />
+                <NumberRow label="z 간격 [m]" v={rx.z_distance} on={(v) => setRX({ z_distance: Math.max(0.1, v) })} />
+                <NumberRow label="벽면 RX 간격 [m]" v={rx.facade_spacing} on={(v) => setRX({ facade_spacing: Math.max(0.1, v) })} />
+                <NumberRow label="바깥 이격 ε [m]" v={rx.facade_epsilon} on={(v) => setRX({ facade_epsilon: Math.max(0, v) })} />
+                <div className="flex gap-2">
+                  <button className="btn btn-secondary text-xs" onClick={countFacade} disabled={facadeCounting}>
+                    {facadeCounting ? '계산 중...' : '벽면 RX 수 계산'}
+                  </button>
+                  <button className="btn btn-secondary text-xs" onClick={previewFacade} disabled={facadeBusy}>
+                    {facadeBusy ? '계산 중...' : '벽면 RX 미리보기'}
+                  </button>
+                </div>
+                <div className="text-xs text-slate-500">
+                  높이층: <span className="font-mono">{Math.max(0, Math.floor((rx.z_max - rx.z_min) / Math.max(0.1, rx.z_distance)) + 1)}</span>개 ·
+                  예상 RX: <span className={`font-mono ${(rx.facade_count ?? 0) > 20000 ? 'text-amber-600 font-semibold' : ''}`}>{rx.facade_count == null ? '—' : rx.facade_count.toLocaleString()}</span>개
+                  {facadeCounting && <span className="inline-block ml-1.5 w-3 h-3 border-2 border-slate-300 border-t-sky-600 rounded-full animate-spin align-[-1px]" title="계산 중" />}
+                  {rx.facade_positions.length > 0 && <> · 렌더됨: <span className="font-mono">{rx.facade_positions.length.toLocaleString()}</span>개</>}
+                </div>
+                <div className="text-[11px] text-slate-400 -mt-1">
+                  값 변경 시 개수는 초기화됩니다(과부하 방지). '벽면 RX 수 계산'으로 개수를 구하고,
+                  '벽면 RX 미리보기'로 실제 배치를 표시하세요. (2만 개 초과 시 경고)
                 </div>
               </div>
             )}
@@ -409,11 +744,171 @@ export function DevicesPage() {
             )}
           </section>
 
+          <button className="btn btn-secondary w-full mb-2" onClick={saveSetting} disabled={presetBusy}>
+            💾 이 실험 setting 저장하기
+          </button>
           <button className="btn btn-primary w-full" onClick={goNext}>
             다음: RT 설정
           </button>
         </div>
       </div>
+
+      {/* ── Material Properties (재질 특성) — 페이지 맨 아래, 전체 너비 ── */}
+      <section className="card">
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+          <h3 className="text-lg font-semibold">Material Properties (재질 특성)</h3>
+          <div className="flex items-center gap-3 text-xs text-slate-500">
+            <span>εr·σ 는 <b>{rt.frequency_ghz} GHz</b> 기준 (4.RT의 주파수와 연동)</span>
+            <button className="btn btn-secondary text-xs px-2 py-1" onClick={resetMatDefaults}>문헌 기본값으로 리셋</button>
+          </div>
+        </div>
+        <p className="text-xs text-slate-500 mb-3 leading-relaxed">
+          εr(유전율)·σ(전도율)은 ITU-R P.2040 재질 클래스가 <b>주파수로부터 자동 계산</b>합니다(수정 불가).
+          산란계수 <b>S</b>는 표면 거칠기 파라미터로 ITU 표준에 정의되지 않아 <b>사용자가 지정</b>합니다.
+          기본값은 문헌 근사치(콘크리트 0.4·유리 0.2 등)이며, 재질마다 다르게 조정할 수 있습니다.
+          커스텀 재질(예: irr_glass)의 εr/σ는 scene.xml에 명시된 값을 그대로 사용합니다.
+        </p>
+        <div className="flex flex-wrap items-end gap-3 mb-3 pb-3 border-b">
+          <label className="text-sm">
+            <span className="block text-xs text-slate-600 mb-0.5">산란 패턴 (scattering pattern · 전역)</span>
+            <select className="input w-40" value={rt.scattering_pattern}
+              onChange={(e) => setRT({ scattering_pattern: e.target.value as any })}>
+              <option value="lambertian">lambertian</option>
+              <option value="directive">directive</option>
+              <option value="backscattering">backscattering</option>
+            </select>
+          </label>
+          {rt.scattering_pattern === 'directive' && (
+            <label className="text-sm">
+              <span className="block text-xs text-slate-600 mb-0.5">directive_alpha_r</span>
+              <input type="number" className="input w-24" value={rt.directive_alpha_r}
+                onChange={(e) => { const v = parseInt(e.target.value); if (!isNaN(v)) setRT({ directive_alpha_r: v }) }} />
+            </label>
+          )}
+          {rt.scattering_pattern === 'backscattering' && (
+            <>
+              <label className="text-sm">
+                <span className="block text-xs text-slate-600 mb-0.5">backscat_alpha_r</span>
+                <input type="number" className="input w-24" value={rt.backscattering_alpha_r}
+                  onChange={(e) => { const v = parseInt(e.target.value); if (!isNaN(v)) setRT({ backscattering_alpha_r: v }) }} />
+              </label>
+              <label className="text-sm">
+                <span className="block text-xs text-slate-600 mb-0.5">backscat_alpha_i</span>
+                <input type="number" className="input w-24" value={rt.backscattering_alpha_i}
+                  onChange={(e) => { const v = parseInt(e.target.value); if (!isNaN(v)) setRT({ backscattering_alpha_i: v }) }} />
+              </label>
+              <label className="text-sm">
+                <span className="block text-xs text-slate-600 mb-0.5">backscat_lambda</span>
+                <input type="number" step="any" className="input w-24" value={rt.backscattering_lambda}
+                  onChange={(e) => { const v = parseFloat(e.target.value); if (!isNaN(v)) setRT({ backscattering_lambda: v }) }} />
+              </label>
+            </>
+          )}
+        </div>
+        {materials.length === 0 ? (
+          <div className="text-sm text-slate-400">재질 정보를 불러오는 중이거나 씬에 재질이 없습니다.</div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-slate-500 border-b">
+                  <th className="py-1.5 pr-3">재질</th>
+                  <th className="py-1.5 pr-3">종류</th>
+                  <th className="py-1.5 pr-3 text-right">shape 수</th>
+                  <th className="py-1.5 pr-3 text-right">εr</th>
+                  <th className="py-1.5 pr-3 text-right">σ [S/m]</th>
+                  <th className="py-1.5 pr-3 text-right">XPD</th>
+                  <th className="py-1.5 pr-3">산란계수 S (거칠기)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {materials.map((m) => (
+                  <tr key={m.name} className="border-b last:border-0">
+                    <td className="py-1.5 pr-3 font-mono">
+                      {m.name}
+                      {m.kind === 'custom' && <span className="ml-1 text-[10px] text-amber-600">(custom)</span>}
+                    </td>
+                    <td className="py-1.5 pr-3 text-slate-500">{m.kind === 'itu' ? 'ITU' : 'Custom'}</td>
+                    <td className="py-1.5 pr-3 text-right font-mono">{m.shape_count.toLocaleString()}</td>
+                    <td className="py-1.5 pr-3 text-right font-mono">{m.eps_r != null ? m.eps_r.toFixed(3) : '—'}</td>
+                    <td className="py-1.5 pr-3 text-right font-mono">{m.sigma != null ? m.sigma.toFixed(4) : '—'}</td>
+                    <td className="py-1.5 pr-3 text-right font-mono">
+                      {m.xpd_coefficient != null ? m.xpd_coefficient.toFixed(2) : (m.kind === 'itu' ? rt.itu_xpd_coeff.toFixed(2) : '—')}
+                    </td>
+                    <td className="py-1.5 pr-3">
+                      <div className="flex items-center gap-2">
+                        <input type="number" min={0} max={0.99} step={0.05}
+                          className="input w-24 text-right py-0.5"
+                          value={rt.material_scattering[m.name] ?? defScat(m)}
+                          onChange={(e) => {
+                            const v = parseFloat(e.target.value)
+                            if (!isNaN(v)) setMatS(m.name, Math.min(0.99, Math.max(0, v)))
+                          }} />
+                        <span className="text-[10px] text-slate-400">기본 {defScat(m)}</span>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <div className="text-[11px] text-slate-400 mt-2">
+              S=0 → 완전 정반사(거울), S→1 → 확산 산란 강함. 반사 에너지를 정반사(√(1−S²)) vs 확산(S)으로 분배합니다.
+              값 0 은 산란 없음(정반사만)으로 처리됩니다.
+            </div>
+          </div>
+        )}
+      </section>
+
+      {showLoad && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+             onClick={() => setShowLoad(false)}>
+          <div className="card max-w-3xl w-full mx-4 bg-white shadow-xl max-h-[80vh] overflow-auto"
+               onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-lg font-semibold">이전 실험 setting 불러오기</h3>
+              <button className="btn btn-secondary text-xs px-2 py-1" onClick={() => setShowLoad(false)}>닫기</button>
+            </div>
+            {presetBusy && <div className="text-xs text-slate-400 mb-2">불러오는 중...</div>}
+            {presets.length === 0 ? (
+              <div className="text-sm text-slate-400">저장된 설정이 없습니다.</div>
+            ) : (
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-left text-slate-500 border-b">
+                    <th className="py-1 pr-2">이름</th>
+                    <th className="py-1 pr-2">Scene</th>
+                    <th className="py-1 pr-2 text-right">TX</th>
+                    <th className="py-1 pr-2">RX 방법</th>
+                    <th className="py-1 pr-2">안테나(BS/UE)</th>
+                    <th className="py-1 pr-2">저장시각</th>
+                    <th className="py-1 pr-2"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {presets.map((p) => (
+                    <tr key={p.id} className="border-b last:border-0">
+                      <td className="py-1.5 pr-2 font-medium">{p.name}</td>
+                      <td className="py-1.5 pr-2 font-mono text-xs">{p.scene_name || '-'}</td>
+                      <td className="py-1.5 pr-2 text-right font-mono">{p.n_tx}</td>
+                      <td className="py-1.5 pr-2">{p.rx_method || '-'}</td>
+                      <td className="py-1.5 pr-2 font-mono text-xs">
+                        {p.antenna?.bs_rows ?? '?'}x{p.antenna?.bs_cols ?? '?'} / {p.antenna?.ue_rows ?? '?'}x{p.antenna?.ue_cols ?? '?'}
+                      </td>
+                      <td className="py-1.5 pr-2 text-xs text-slate-500">{p.created_at}</td>
+                      <td className="py-1.5 pr-2 whitespace-nowrap">
+                        <button className="btn btn-primary text-xs px-2 py-0.5 mr-1"
+                          onClick={() => applyPreset(p.id)} disabled={presetBusy}>불러오기</button>
+                        <button className="btn btn-danger text-xs px-2 py-0.5"
+                          onClick={() => deletePreset(p.id)}>삭제</button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </div>
+      )}
 
       {showTxWarn && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
@@ -436,6 +931,23 @@ export function DevicesPage() {
         </div>
       )}
     </div>
+  )
+}
+
+const PATTERN_OPTIONS = ['iso', 'dipole', 'hw_dipole', 'tr38901']
+const POLARIZATION_OPTIONS = ['V', 'H', 'VH', 'cross']
+
+function SelectInput({ label, value, on, options }: {
+  label: string; value: string; on: (v: string) => void; options: string[]
+}) {
+  const opts = options.includes(value) ? options : [value, ...options]
+  return (
+    <label className="flex justify-between items-center gap-2">
+      <span className="text-slate-600">{label}</span>
+      <select className="input w-40 text-right" value={value} onChange={(e) => on(e.target.value)}>
+        {opts.map((o) => <option key={o} value={o}>{o}</option>)}
+      </select>
+    </label>
   )
 }
 
@@ -499,6 +1011,10 @@ function DualRange({ min, max, lo, hi, onChange }: {
         style={{ left: `${pct(hiC)}%` }} />
     </div>
   )
+}
+
+function defScat(m: MaterialInfo): number {
+  return (m.kind === 'custom' && m.scattering_xml != null) ? m.scattering_xml : m.scattering_default
 }
 
 function computeRX(rx: ReturnType<typeof useStore.getState>['rx'], _aabbMin: number[], _aabbMax: number[]): Coord3[] {

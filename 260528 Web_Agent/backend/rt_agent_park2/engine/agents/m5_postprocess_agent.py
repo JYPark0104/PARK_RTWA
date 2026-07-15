@@ -163,7 +163,7 @@ def _process_single_rx(
             "R_RX": np.zeros((num_rx_ant, num_rx_ant), dtype=np.complex128),
         }
 
-    rsrp_dbm = 10 * np.log10(np.sum(val_pow) + 1e-15) + 30
+    rsrp_dbm = 10 * np.log10(np.sum(val_pow) + 1e-15) + config.power_offset
 
     # 유효 경로의 안테나별 복소 채널 (R, T, n_valid)
     A = a_c[rx_idx][:, :, valid_mask]
@@ -174,7 +174,7 @@ def _process_single_rx(
     n_valid = int(val_pow.size)
     return {
         "tau": val_tau,
-        "power_dbm": 10 * np.log10(val_pow + 1e-15) + 30,
+        "power_dbm": 10 * np.log10(val_pow + 1e-15) + config.power_offset,
         "aoa_azimuth": val_phi_r * (180 / np.pi),
         "aod_azimuth": val_phi_t * (180 / np.pi),
         # [Intg] 고도각(deg) + 경로별 LoS(int). theta 없으면 0 으로 채움.
@@ -564,4 +564,69 @@ def save_output1_multi(per_tx_all_results: list, output_dir: str,
     print(f"   💾 [Output 1] Multi-TX 채널 데이터 저장: {filepath}")
     print(f"      텐서 인덱싱: [TX={num_tx}, RX={num_rx}, {{통신 데이터}}] "
           f"| 공분산 R_TX({_nt}×{_nt}), R_RX({_nr}×{_nr})")
+    return filepath
+
+
+def save_output1_multi_streaming(per_tx_all_results: list, output_dir: str,
+                                 map_title: str = "map", config: RT_Config = None,
+                                 rx_positions_3d: list = None,
+                                 rx_valid_mask=None) -> str:
+    """save_output1_multi 와 '동일한' channel_data_*.npz 를 만들되, save_dict 를 통째로
+    메모리에 안 들고 각 배열을 zip 에 '하나씩' 흘려 쓴다 (대용량 RX OOM/과다메모리 방지, 2026-07-14).
+    출력 키/shape/dtype/값은 save_output1_multi 와 동일."""
+    import zipfile
+    from numpy.lib import format as _npy_fmt
+
+    os.makedirs(output_dir, exist_ok=True)
+    safe_title = "".join(c if c.isalnum() or c in "-_" else "_" for c in map_title)
+    filepath = os.path.join(output_dir, f"channel_data_{safe_title}.npz")
+
+    num_tx = len(per_tx_all_results)
+    num_rx = max((len(r) for r in per_tx_all_results), default=0)
+
+    def _write(zf, key, arr):
+        arr = np.asarray(arr)
+        if arr.ndim > 0 and not arr.flags["C_CONTIGUOUS"]:
+            arr = np.ascontiguousarray(arr)
+        with zf.open(key + ".npy", "w", force_zip64=True) as f:
+            _npy_fmt.write_array(f, arr, allow_pickle=False)
+
+    rsrp_all = np.full((num_tx, num_rx), -np.inf, dtype=np.float64)
+    los_all = np.zeros((num_tx, num_rx), dtype=bool)
+
+    tmp = filepath + ".tmp"
+    with zipfile.ZipFile(tmp, "w", compression=zipfile.ZIP_DEFLATED, allowZip64=True) as zf:
+        # per-(t,i) 배열: 하나씩 기록 후 해제 (14M 개 배열을 dict 에 안 쌓음)
+        for t, all_results in enumerate(per_tx_all_results):
+            for i, r in enumerate(all_results):
+                rsrp_all[t, i] = r["total_rsrp_dbm"]
+                los_all[t, i] = bool(r.get("los", False))
+                _write(zf, f"tau_tx{t}_rx{i}",   r["tau"])
+                _write(zf, f"power_tx{t}_rx{i}", r["power_dbm"])
+                _write(zf, f"aoa_tx{t}_rx{i}",   r["aoa_azimuth"])
+                _write(zf, f"aod_tx{t}_rx{i}",   r["aod_azimuth"])
+                _write(zf, f"R_TX_tx{t}_rx{i}",  r["R_TX"])
+                _write(zf, f"R_RX_tx{t}_rx{i}",  r["R_RX"])
+
+        _write(zf, "rsrp_all", rsrp_all)
+        _write(zf, "los_all", los_all)
+
+        if rx_valid_mask is not None:
+            _write(zf, "rx_valid_mask", np.asarray(rx_valid_mask).astype(np.int8).reshape(-1))
+        else:
+            _dead = np.all(~np.isfinite(rsrp_all), axis=0)
+            _write(zf, "rx_valid_mask", np.where(_dead, 1, 0).astype(np.int8))
+
+        if config is not None:
+            _write(zf, "tx_positions", np.array(config.tx_positions, dtype=np.float64))
+            if rx_positions_3d is not None and len(rx_positions_3d) > 0:
+                _write(zf, "rx_positions", np.array(rx_positions_3d, dtype=np.float64))
+            else:
+                _write(zf, "rx_positions", np.array(config.rx_positions, dtype=np.float64))
+            _write(zf, "target_tx_index", np.array([config.target_tx_index]))
+            _write(zf, "target_rx_index", np.array([config.target_rx_index]))
+            _write(zf, "num_tx_ant", np.array([config.num_tx_ant]))
+            _write(zf, "num_rx_ant", np.array([config.num_rx_ant]))
+
+    os.replace(tmp, filepath)
     return filepath

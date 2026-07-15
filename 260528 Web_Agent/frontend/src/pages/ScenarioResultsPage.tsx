@@ -11,6 +11,24 @@ import { ChannelStatePanel, type ChItem } from '../components/ChannelStatePanel'
 type Ray = { pts: number[][]; los: boolean; width: number }
 type Step = { name: string; pos: number[]; rays: Ray[] }
 
+// 9.Scenario Results 표시 설정 (localStorage 'rtagent_viz')
+type Viz = {
+  rayThickness: number; rayFixed: boolean; rayFixedRadius: number; rayOpacity: number
+  losColor: string; nlosColor: string
+  pathColor: string; pathThickness: number; pathOpacity: number
+  txColor: string; txSize: number; rxColor: string; rxSize: number
+}
+const VIZ_DEFAULT: Viz = {
+  rayThickness: 1, rayFixed: false, rayFixedRadius: 0.4, rayOpacity: 1,
+  losColor: '#3399ff', nlosColor: '#ffbf00',
+  pathColor: '#b6f36a', pathThickness: 1, pathOpacity: 1,
+  txColor: '#ff0000', txSize: 1, rxColor: '#22ff44', rxSize: 1,
+}
+function loadViz(): Viz {
+  try { const r = localStorage.getItem('rtagent_viz'); return r ? { ...VIZ_DEFAULT, ...JSON.parse(r) } : VIZ_DEFAULT }
+  catch { return VIZ_DEFAULT }
+}
+
 /**
  * 9. Scenario Results — blender_mobility.py 다운로드 + 사용법 + 웹 3D 키프레임 미리보기.
  * (Blender 없이 동일한 scenario_data 를 브라우저에서 직접 재생 = 검토 Q5(b))
@@ -25,6 +43,8 @@ export function ScenarioResultsPage() {
   const [restoring, setRestoring] = useState(false)
   const [mapLoaded, setMapLoaded] = useState(false)
   const [playFps, setPlayFps] = useState<number | null>(null)   // 재생 속도(override). null=시나리오 기본값
+  const [viz, setViz] = useState<Viz>(loadViz)
+  useEffect(() => { try { localStorage.setItem('rtagent_viz', JSON.stringify(viz)) } catch { /* ignore */ } }, [viz])
   const [ch, setCh] = useState<(ChItem | undefined)[]>([])      // step별 채널상태 (병렬 로딩)
   const [chLoaded, setChLoaded] = useState(0)
   const [chTotal, setChTotal] = useState(0)
@@ -105,6 +125,8 @@ export function ScenarioResultsPage() {
   }
   const steps = preview.steps ?? []
   const dlUrl = apiClient.fileUrl(session.uuid, result.script_rel)
+  const unrealRel = (result as any).unreal_script_rel as string | undefined
+  const unrealDlUrl = unrealRel ? apiClient.fileUrl(session.uuid, unrealRel) : null
   const effFps = playFps ?? preview.fps ?? 30
   const secPerStep = (preview.frames_per_step || 3) / Math.max(effFps, 0.5)
 
@@ -113,9 +135,16 @@ export function ScenarioResultsPage() {
       <section className="card">
         <div className="flex justify-between items-center mb-2">
           <h2 className="text-lg font-semibold">9. Scenario Results</h2>
-          <a className="btn btn-primary" href={dlUrl} download="blender_mobility.py">
-            blender_mobility.py 다운로드
-          </a>
+          <div className="flex items-center gap-2">
+            <a className="btn btn-primary" href={dlUrl} download="blender_mobility.py">
+              blender_mobility.py 다운로드
+            </a>
+            {unrealDlUrl && (
+              <a className="btn btn-secondary" href={unrealDlUrl} download="unreal_scenario.py">
+                unreal_scenario.py 다운로드
+              </a>
+            )}
+          </div>
         </div>
         <div className="text-sm grid grid-cols-2 md:grid-cols-4 gap-2">
           <div>TX: <span className="font-mono">{result.tx_name}</span></div>
@@ -134,6 +163,21 @@ export function ScenarioResultsPage() {
           </ol>
           <p className="text-xs text-slate-500 mt-1">
             이 스크립트는 USDA 통째 import 없이, 선택한 TX/RX/Ray 만 생성하는 자체 완결형입니다.
+          </p>
+        </details>
+        <details className="mt-2 text-sm">
+          <summary className="cursor-pointer text-slate-600 hover:text-slate-900">도움말 : Unreal Engine 사용법</summary>
+          <ol className="list-decimal pl-5 space-y-1 text-slate-700 text-xs mt-2">
+            <li>위 버튼으로 <b>unreal_scenario.py</b> 다운로드 (데이터 포함, 파일 하나)</li>
+            <li>Unreal에서 도시 메시(.glb 등)를 먼저 임포트해 배치</li>
+            <li>플러그인: Edit → Plugins → <b>Python Editor Script</b> + <b>Sequencer Scripting</b> 활성화</li>
+            <li><b>Tools → Execute Python Script...</b> → unreal_scenario.py 선택</li>
+            <li>콘텐츠 브라우저 <span className="font-mono">RT_Rays / SEQ_RayPlayback</span> 더블클릭 → <b>재생</b></li>
+            <li>도시와 안 맞으면 파일 상단 <span className="font-mono">FLIP_Y</span>(기본 True)/<span className="font-mono">FLIP_X</span>/<span className="font-mono">SCALE</span> 조정 후 재실행</li>
+            <li>재생이 반대(전부 보임/숨김)면 <span className="font-mono">VIS_KEY_VISIBLE=False</span></li>
+          </ol>
+          <p className="text-xs text-slate-500 mt-1">
+            blender_mobility.py 와 동일한 데이터를 Unreal에서 재생 - 파일 하나로 딸깍 실행.
           </p>
         </details>
       </section>
@@ -183,6 +227,7 @@ export function ScenarioResultsPage() {
               onStep={setStep}
               onMapLoaded={() => setMapLoaded(true)}
               skinUrl={textured && skin.has_skin ? skin.url : undefined}
+              viz={viz}
             />
           </div>
           <input
@@ -190,6 +235,29 @@ export function ScenarioResultsPage() {
             onChange={(e) => { setPlaying(false); setStep(parseInt(e.target.value)) }}
             className="w-full mt-2"
           />
+          <details className="mt-2 text-sm">
+            <summary className="cursor-pointer text-slate-600 hover:text-slate-900">🎨 표시 설정 (Ray / 경로 / TX·RX)</summary>
+            <div className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-x-5 gap-y-2 text-xs">
+              <label className="flex items-center gap-2 md:col-span-2">
+                <input type="checkbox" checked={viz.rayFixed} onChange={(e) => setViz((v) => ({ ...v, rayFixed: e.target.checked }))} />
+                Ray 굵기 고정 (power 차등 무시)
+              </label>
+              {viz.rayFixed
+                ? <RangeRow label="Ray 고정 반지름" min={0.05} max={2} step={0.05} value={viz.rayFixedRadius} unit="m" onChange={(x) => setViz((v) => ({ ...v, rayFixedRadius: x }))} />
+                : <RangeRow label="Ray 굵기 배율" min={0.2} max={5} step={0.1} value={viz.rayThickness} unit="x" onChange={(x) => setViz((v) => ({ ...v, rayThickness: x }))} />}
+              <RangeRow label="Ray 투명도" min={0.1} max={1} step={0.05} value={viz.rayOpacity} onChange={(x) => setViz((v) => ({ ...v, rayOpacity: x }))} />
+              <ColorRow label="LoS 색" value={viz.losColor} onChange={(c) => setViz((v) => ({ ...v, losColor: c }))} />
+              <ColorRow label="NLoS 색" value={viz.nlosColor} onChange={(c) => setViz((v) => ({ ...v, nlosColor: c }))} />
+              <ColorRow label="이동경로 색" value={viz.pathColor} onChange={(c) => setViz((v) => ({ ...v, pathColor: c }))} />
+              <RangeRow label="경로 굵기" min={0.2} max={5} step={0.1} value={viz.pathThickness} unit="x" onChange={(x) => setViz((v) => ({ ...v, pathThickness: x }))} />
+              <RangeRow label="경로 투명도" min={0.1} max={1} step={0.05} value={viz.pathOpacity} onChange={(x) => setViz((v) => ({ ...v, pathOpacity: x }))} />
+              <ColorRow label="TX 색" value={viz.txColor} onChange={(c) => setViz((v) => ({ ...v, txColor: c }))} />
+              <RangeRow label="TX 크기" min={0.3} max={4} step={0.1} value={viz.txSize} unit="x" onChange={(x) => setViz((v) => ({ ...v, txSize: x }))} />
+              <ColorRow label="RX 색" value={viz.rxColor} onChange={(c) => setViz((v) => ({ ...v, rxColor: c }))} />
+              <RangeRow label="RX 크기" min={0.3} max={4} step={0.1} value={viz.rxSize} unit="x" onChange={(x) => setViz((v) => ({ ...v, rxSize: x }))} />
+              <button className="btn btn-secondary text-xs md:col-span-2" onClick={() => setViz(VIZ_DEFAULT)}>기본값으로 초기화</button>
+            </div>
+          </details>
         </section>
 
         <section className="card text-sm space-y-2">
@@ -222,11 +290,11 @@ export function ScenarioResultsPage() {
 }
 
 function ScenarioViewer({
-  uuid, steps, txPos, step, playing, secPerStep, onStep, onMapLoaded, skinUrl,
+  uuid, steps, txPos, step, playing, secPerStep, onStep, onMapLoaded, skinUrl, viz,
 }: {
   uuid: string; steps: Step[]; txPos: number[]; step: number; playing: boolean
   secPerStep: number; onStep: (s: number) => void; onMapLoaded?: () => void
-  skinUrl?: string
+  skinUrl?: string; viz: Viz
 }) {
   // 카메라 fit: 스텝 위치 + TX 로 대략적 중심/스케일
   const center = useMemo<[number, number, number]>(() => {
@@ -271,22 +339,22 @@ function ScenarioViewer({
           : <MapMesh uuid={uuid} onLoaded={onMapLoaded} />}
       </SafeMap>
       {/* 이동 경로 (전체 RX 궤적) — 불투명 연한 연두색 굵은 선 */}
-      <MobilityPath steps={steps} span={span} />
+      <MobilityPath steps={steps} span={span} viz={viz} />
       {/* TX */}
       <mesh position={txPos as any}>
-        <sphereGeometry args={[Math.max(span / 300, 1.5), 16, 16]} />
-        <meshStandardMaterial color="red" emissive="red" emissiveIntensity={0.5} />
+        <sphereGeometry args={[Math.max(span / 300, 1.5) * viz.txSize, 16, 16]} />
+        <meshStandardMaterial color={viz.txColor} emissive={viz.txColor} emissiveIntensity={0.5} />
       </mesh>
-      <Animator steps={steps} step={step} playing={playing} secPerStep={secPerStep} onStep={onStep} span={span} wRange={wRange} />
+      <Animator steps={steps} step={step} playing={playing} secPerStep={secPerStep} onStep={onStep} span={span} wRange={wRange} viz={viz} />
     </Canvas>
   )
 }
 
 function Animator({
-  steps, step, playing, secPerStep, onStep, span, wRange,
+  steps, step, playing, secPerStep, onStep, span, wRange, viz,
 }: {
   steps: Step[]; step: number; playing: boolean; secPerStep: number
-  onStep: (s: number) => void; span: number; wRange: [number, number]
+  onStep: (s: number) => void; span: number; wRange: [number, number]; viz: Viz
 }) {
   const acc = useRef(0)
   useFrame((_s, dt) => {
@@ -299,73 +367,127 @@ function Animator({
   })
   const cur = steps[step]
   if (!cur) return null
-  const rxR = Math.max(span / 350, 1.2)
+  const rxR = Math.max(span / 350, 1.2) * viz.rxSize
   return (
     <group>
       <mesh position={cur.pos as any}>
         <sphereGeometry args={[rxR, 16, 16]} />
-        <meshStandardMaterial color="#22ff44" emissive="#22ff44" emissiveIntensity={0.6} />
+        <meshStandardMaterial color={viz.rxColor} emissive={viz.rxColor} emissiveIntensity={0.6} />
       </mesh>
       {cur.rays.map((ray, i) => (
-        <RayTube key={i} ray={ray} span={span} wRange={wRange} />
+        <RayTube key={i} ray={ray} span={span} wRange={wRange} viz={viz} />
       ))}
     </group>
   )
 }
 
-function RayTube({ ray, span, wRange }: { ray: Ray; span: number; wRange: [number, number] }) {
+function RayTube({ ray, span, wRange, viz }: { ray: Ray; span: number; wRange: [number, number]; viz: Viz }) {
   const [lo, hi] = wRange
-  const norm = hi > lo ? (ray.width - lo) / (hi - lo) : 0.5   // 0=약 ~ 1=강 (굵기에만 사용)
+  const norm = hi > lo ? (ray.width - lo) / (hi - lo) : 0.5   // 0=약 ~ 1=강 (굵기 차등)
   const geom = useMemo(() => {
     const pts = ray.pts.map((p) => new THREE.Vector3(p[0], p[1], p[2]))
     if (pts.length < 2) return null
     const path = new THREE.CurvePath<THREE.Vector3>()
     for (let i = 0; i < pts.length - 1; i++) path.add(new THREE.LineCurve3(pts[i], pts[i + 1]))
-    // 튜브 반지름: 벽에서 떠 보이지 않도록 얇게 + 절대 상한(≈0.6m) 클램프.
-    // (반사점은 벽면 위에 정확히 있으므로, 두꺼운 튜브 표면이 벽 밖으로 삐져나오는 착시를 방지)
     const baseR = Math.min(span / 1100, 0.5)
-    const radius = Math.min(baseR * (0.35 + 0.9 * norm), 0.6)
-    return new THREE.TubeGeometry(path, Math.max((pts.length - 1) * 2, 2), radius, 6, false)
-  }, [ray, span, norm])
+    // 고정 굵기 토글 or (power 차등 × 사용자 배율)
+    const radius = viz.rayFixed
+      ? viz.rayFixedRadius
+      : Math.min(baseR * (0.35 + 0.9 * norm), 0.6) * viz.rayThickness
+    return new THREE.TubeGeometry(path, Math.max((pts.length - 1) * 2, 2), Math.max(radius, 0.02), 6, false)
+  }, [ray, span, norm, viz.rayFixed, viz.rayFixedRadius, viz.rayThickness])
   if (!geom) return null
-  // LoS=파랑 / NLoS=노랑 (색은 모두 동일, power 차이는 '굵기'로만 표현)
-  const color = ray.los ? '#3399ff' : '#ffbf00'
+  const color = ray.los ? viz.losColor : viz.nlosColor
   return (
     <mesh geometry={geom}>
-      <meshStandardMaterial color={color} emissive={color} emissiveIntensity={0.55} />
+      <meshStandardMaterial color={color} emissive={color} emissiveIntensity={0.55}
+        transparent={viz.rayOpacity < 1} opacity={viz.rayOpacity} />
     </mesh>
   )
 }
 
-function MobilityPath({ steps, span }: { steps: Step[]; span: number }) {
+function MobilityPath({ steps, span, viz }: { steps: Step[]; span: number; viz: Viz }) {
   const geom = useMemo(() => {
     if (steps.length < 2) return null
     const pts = steps.map((s) => new THREE.Vector3(s.pos[0], s.pos[1], s.pos[2]))
     const path = new THREE.CurvePath<THREE.Vector3>()
     for (let i = 0; i < pts.length - 1; i++) path.add(new THREE.LineCurve3(pts[i], pts[i + 1]))
-    const radius = span / 500   // 기존 1px 선보다 확실히 굵게
-    return new THREE.TubeGeometry(path, Math.max((pts.length - 1) * 2, 2), radius, 8, false)
-  }, [steps, span])
+    const radius = (span / 500) * viz.pathThickness
+    return new THREE.TubeGeometry(path, Math.max((pts.length - 1) * 2, 2), Math.max(radius, 0.02), 8, false)
+  }, [steps, span, viz.pathThickness])
   if (!geom) return null
   return (
     <mesh geometry={geom}>
-      {/* 불투명(투명도 0%) 연한 연두색 */}
-      <meshStandardMaterial color="#b6f36a" emissive="#b6f36a" emissiveIntensity={0.4} />
+      <meshStandardMaterial color={viz.pathColor} emissive={viz.pathColor} emissiveIntensity={0.4}
+        transparent={viz.pathOpacity < 1} opacity={viz.pathOpacity} />
     </mesh>
   )
 }
 
+/**
+ * 회색 배경 맵 메시.
+ *  - 재질 부여 트윈(수천 PLY로 분할, scene_mesh.ply 없음)은 서버 병합 geometry(/scene/geometry)로 로드.
+ *  - 단일 메시 씬(scene_mesh.ply)은 폴백 로드.
+ *  - useLoader(Suspense) 대신 fetch+state 를 써서, 로드 실패 시에도 onLoaded 를 호출해
+ *    '3D 로딩 중' 오버레이가 무한히 남지 않도록 한다. (2026-07-07 버그픽스)
+ */
 function MapMesh({ uuid, onLoaded }: { uuid: string; onLoaded?: () => void }) {
-  const url = apiClient.meshUrl(uuid, 'scene_mesh.ply')
-  const geom = useLoader(PLYLoader, url) as THREE.BufferGeometry
-  useEffect(() => { if (geom) { geom.computeVertexNormals(); onLoaded?.() } }, [geom])
-  if (!geom) return null
+  const [geoms, setGeoms] = useState<THREE.BufferGeometry[]>([])
+  useEffect(() => {
+    let cancelled = false
+    const done = () => { if (!cancelled) onLoaded?.() }
+    async function loadMerged(): Promise<boolean> {
+      try {
+        const m = await fetch(`/api/sessions/${uuid}/scene/geometry`)
+        if (!m.ok) return false
+        const manifest = await m.json()
+        const mats: { rel: string }[] = manifest?.materials ?? []
+        if (!mats.length) return false
+        const out: THREE.BufferGeometry[] = []
+        for (const mt of mats) {
+          if (cancelled) return true
+          try {
+            const r = await fetch(`/api/sessions/${uuid}/scene/merged/${encodeURIComponent(mt.rel)}`)
+            if (!r.ok) continue
+            const arr = new Float32Array(await r.arrayBuffer())
+            if (arr.length >= 9) {
+              const g = new THREE.BufferGeometry()
+              g.setAttribute('position', new THREE.BufferAttribute(arr, 3))
+              g.computeVertexNormals()
+              out.push(g)
+            }
+          } catch { /* 이 재질만 스킵 */ }
+        }
+        if (!cancelled) { setGeoms(out); done() }
+        return true
+      } catch { return false }
+    }
+    async function loadSingle() {
+      try {
+        const r = await fetch(apiClient.meshUrl(uuid, 'scene_mesh.ply'))
+        if (!r.ok) throw new Error('no scene_mesh.ply')
+        const g = new PLYLoader().parse(await r.arrayBuffer()) as THREE.BufferGeometry
+        g.computeVertexNormals()
+        if (!cancelled) { setGeoms([g]); done() }
+      } catch { done() /* 실패해도 오버레이는 닫아 무한 로딩 방지 */ }
+    }
+    ;(async () => {
+      const ok = await loadMerged()
+      if (!ok && !cancelled) await loadSingle()
+    })()
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [uuid])
+  if (!geoms.length) return null
   return (
-    // flatShading: 벽을 면 단위로 또렷하게 → 레이가 어느 벽에 붙는지 깊이 판단 쉬움.
-    // opacity 0.8 로 약간 더 불투명하게 (벽 통과 착시 완화, 그래도 레이는 비침)
-    <mesh geometry={geom}>
-      <meshStandardMaterial color="#9aa3b2" roughness={0.95} metalness={0.0} flatShading transparent opacity={0.8} />
-    </mesh>
+    <>
+      {geoms.map((g, i) => (
+        // flatShading: 벽을 면 단위로 또렷하게. opacity 0.8 로 레이는 비치되 벽 통과 착시 완화.
+        <mesh key={i} geometry={g}>
+          <meshStandardMaterial color="#9aa3b2" roughness={0.95} metalness={0.0} flatShading transparent opacity={0.8} />
+        </mesh>
+      ))}
+    </>
   )
 }
 
@@ -411,5 +533,29 @@ function SafeMap({ children }: { children: ReactNode }) {
     <MapErrorBoundary>
       <Suspense fallback={null}>{children}</Suspense>
     </MapErrorBoundary>
+  )
+}
+
+function RangeRow({ label, min, max, step, value, onChange, unit }: {
+  label: string; min: number; max: number; step: number; value: number; onChange: (v: number) => void; unit?: string
+}) {
+  return (
+    <label className="flex items-center justify-between gap-2">
+      <span className="text-slate-600 whitespace-nowrap">{label}</span>
+      <span className="flex items-center gap-1">
+        <input type="range" min={min} max={max} step={step} value={value}
+          onChange={(e) => onChange(parseFloat(e.target.value))} className="w-20" />
+        <span className="font-mono text-slate-500 w-12 text-right">{value.toFixed(2)}{unit ?? ''}</span>
+      </span>
+    </label>
+  )
+}
+
+function ColorRow({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
+  return (
+    <label className="flex items-center justify-between gap-2">
+      <span className="text-slate-600 whitespace-nowrap">{label}</span>
+      <input type="color" value={value} onChange={(e) => onChange(e.target.value)} className="w-10 h-6 p-0 border rounded" />
+    </label>
   )
 }

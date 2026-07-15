@@ -170,14 +170,18 @@ class GroundRaycaster:
         cast_z = raycasting_z if raycasting_z is not None else float(self.bbox_max[2]) + 10.0
 
         if spacing is not None and float(spacing) > 0:
-            # 간격(미터) 방식: x·y 동일 간격(정사각). 후보 개수 상한(축당 200, 총 40,000)으로 폭주 방지.
+            # 간격(미터) 방식: x·y 동일 간격(정사각).
+            #   버그픽스(2026-07-09): 기존엔 '축당 200개' 캡이라 맵 span 이 크면 min_step 이 커져
+            #   1m·2m 등 작은 간격이 모두 같은 값(예: span/200=5m)으로 보정되어 동일 배치가 나왔다.
+            #   → '총 후보 개수' 상한으로 바꿔, 상한 이내면 요청 간격을 그대로 존중한다.
             step = float(spacing)
-            MAX_PER_AXIS = 200
+            MAX_TOTAL = 1_000_000     # 후보 격자점 총 상한 (raycasting/미리보기 폭주 방지)
             span_x = max(x_max - x_min, 0.0)
             span_y = max(y_max - y_min, 0.0)
-            min_step = max(span_x, span_y) / MAX_PER_AXIS
-            if step < min_step:  # 간격이 너무 작아 후보 폭발 → 안전 간격으로 자동 보정
-                step = min_step
+            nx = int(span_x / step) + 1
+            ny = int(span_y / step) + 1
+            if nx * ny > MAX_TOTAL:   # 너무 촘촘해 상한 초과 → 간격을 정사각 비율로 상향
+                step = step * float(np.sqrt((nx * ny) / MAX_TOTAL))
             xs = np.arange(x_min, x_max + 1e-9, step)
             ys = np.arange(y_min, y_max + 1e-9, step)
             if xs.size == 0:

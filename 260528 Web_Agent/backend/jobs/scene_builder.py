@@ -246,10 +246,12 @@ def _finalize_material_assigned_scene(
 
     (out_dir / "scene.xml").write_text(rewritten, encoding="utf-8")
 
-    # 재질 목록: BSDF/ref id 의 mat-itu_* 에서 추출 (사용자 정의 그대로).
+    # 재질 목록: BSDF/ref id 의 mat-* 전체에서 추출 (사용자 정의 그대로).
+    #   2026-07-06: 기존엔 mat-itu_* 만 잡아 커스텀 재질(irr_glass 등)이 목록/범례에서 누락됐다.
+    #   → mat- 접두어의 모든 재질을 포함하도록 수정.
     import re as _re
 
-    materials = sorted(set(_re.findall(r'id="mat-(itu_[a-z0-9_]+)"', rewritten)))
+    materials = sorted(set(_re.findall(r'id="mat-([A-Za-z0-9_]+)"', rewritten)))
     if not materials:
         materials = [DEFAULT_MATERIAL]
 

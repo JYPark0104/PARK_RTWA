@@ -38,6 +38,22 @@ def _now() -> str:
     return _dt.datetime.now(kst).isoformat()
 
 
+def _atomic_write_text(path: Path, text: str) -> None:
+    """temp 에 쓰고 os.replace 로 교체 → 읽는 쪽이 반쪽/빈 파일을 보지 않음(500 방지)."""
+    import os
+    import tempfile
+    try:
+        fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix="." + path.name + ".", suffix=".tmp")
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(text)
+        os.replace(tmp, path)
+    except Exception:
+        try:
+            path.write_text(text, encoding="utf-8")
+        except Exception:
+            pass
+
+
 class QueueStore:
     """sessions 루트 기준 큐/유저 영속화 관리자."""
 
@@ -59,9 +75,7 @@ class QueueStore:
             return []
 
     def _write_users(self, users: list[dict]) -> None:
-        self.users_path.write_text(
-            json.dumps({"users": users}, ensure_ascii=False, indent=2), encoding="utf-8"
-        )
+        _atomic_write_text(self.users_path, json.dumps({"users": users}, ensure_ascii=False, indent=2))
 
     def list_users(self) -> list[dict]:
         with _LOCK:
@@ -112,9 +126,7 @@ class QueueStore:
             return []
 
     def _write_order(self, order: list[str]) -> None:
-        self.queue_path.write_text(
-            json.dumps({"order": order}, ensure_ascii=False, indent=2), encoding="utf-8"
-        )
+        _atomic_write_text(self.queue_path, json.dumps({"order": order}, ensure_ascii=False, indent=2))
 
     def enqueue(self, uuid: str, job_id: str, user_id: str = "", user_name: str = "",
                 engine: str = "") -> None:
@@ -196,6 +208,14 @@ class QueueStore:
                 elapsed = (_dt.datetime.now(t0.tzinfo) - t0).total_seconds()
             except Exception:
                 elapsed = None
+        # (B) 실행 중 ETA — 경과시간+진행률 기반 남은 시간(초). 초기 구간이면 None.
+        eta = None
+        if meta.status == "processing":
+            try:
+                from ..time_estimator.eta import compute_eta
+                eta = compute_eta(elapsed, prog)
+            except Exception:
+                eta = None
         return {
             "uuid": meta.uuid, "label": meta.label,
             "user_id": meta.user_id, "user_name": meta.user_name,
@@ -206,6 +226,7 @@ class QueueStore:
             "queued_at": meta.queued_at, "started_at": meta.started_at,
             "finished_at": meta.finished_at, "last_error": meta.last_error,
             "elapsed_sec": elapsed,
+            "eta_sec": eta,
             "bs_rows": meta.bs_rows, "bs_cols": meta.bs_cols,
             "ue_rows": meta.ue_rows, "ue_cols": meta.ue_cols,
         }

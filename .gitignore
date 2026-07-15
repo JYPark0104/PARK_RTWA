@@ -55,6 +55,12 @@ build/
 **/live_scatter.json
 **/*.pid
 
+# --- 복구/백업 산출물 (sudo 복구 잔여물, root 소유 폴더 등) ---
+**/_recovered_*/
+**/_recovery_*/
+*.bak
+*.bak_*
+
 # --- 서버/IDE ---
 vscode-server-linux-x64*/
 .DS_Store

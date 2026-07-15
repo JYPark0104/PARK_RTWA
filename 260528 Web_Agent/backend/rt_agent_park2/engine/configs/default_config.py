@@ -70,6 +70,13 @@ class RT_Config:
         default_factory=lambda: [[-12.517, 14.894, 41.0]]
     )
     tx_position: Tuple[float, float, float] = (-12.517, 14.894, 41.0)
+    # TX 방향(orientation) = Sionna Euler 각 (α=azimuth, β=elevation, γ=roll) [radian].
+    #   tx_orientations: TX별 방향 목록(tx_positions 와 정렬). tx_orientation: 현재 처리 중 TX.
+    #   iso 패턴이면 방향 무의미. dipole/tr38901 등 지향성 패턴에서만 효과.
+    tx_orientations: List[List[float]] = field(
+        default_factory=lambda: [[0.0, 0.0, 0.0]]
+    )
+    tx_orientation: Tuple[float, float, float] = (0.0, 0.0, 0.0)
 
     # --- RX 격자 설정 ---
     grid_n: int = 20
@@ -97,6 +104,10 @@ class RT_Config:
     thickness: float = 0.1
     scattering_coefficient: float = 0.9
     xpd_coefficient: float = 0.0
+    # 재질별 산란계수 S 오버라이드 {재질명: S}. 예: {"itu_concrete":0.4,"itu_glass":0.2}
+    #   여기 있는 재질은 이 S를, 없는 ITU 재질은 전역 scattering_coefficient를 사용.
+    #   (2026-07-06 추가: 재질별 산란계수 GUI 지원)
+    material_scattering: dict = field(default_factory=dict)
     scattering_pattern: str = "lambertian"   # "lambertian" | "directive" | "backscattering"
     directive_alpha_r: int = 10
     backscattering_alpha_r: int = 20
@@ -123,6 +134,12 @@ class RT_Config:
 
     # --- 후처리 파라미터 ---
     threshold_watt: float = 1e-20
+    # POWER_OFFSET [dB]: RSRP/경로전력(dBm) 계산 시 채널이득에 더해지는 오프셋.
+    #   RSRP[dBm] = 10*log10(|a|^2) + power_offset
+    #   Sionna cir()의 |a|^2 은 순수 채널이득(무차원, TX power 미포함)이므로,
+    #   이 오프셋이 곧 '유효 송신전력 기준[dBm]' 역할을 한다. (기존 하드코딩 30 = 1W 기준)
+    #   2026-07-02: 하드코딩 30 → 파라미터화 (RT 단계에서 조절 가능하도록 변경)
+    power_offset: float = 30.0
 
     # --- 분석 설정 ---
     target_tx_index: int = 0   # 상세 분석(PDP/PADP/cov) 대상 TX 인덱스 (0-based)
@@ -320,6 +337,7 @@ def load_config(yaml_path: str = None) -> RT_Config:
     # postprocess
     pp = y.get("postprocess", {})
     if "threshold_watt" in pp: cfg.threshold_watt = float(pp["threshold_watt"])
+    if "power_offset"   in pp: cfg.power_offset   = float(pp["power_offset"])
 
     # analysis
     a = y.get("analysis", {})

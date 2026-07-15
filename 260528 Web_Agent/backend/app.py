@@ -134,9 +134,66 @@ async def _shutdown() -> None:
 # ---------------------------------------------------------------------------
 # Health
 # ---------------------------------------------------------------------------
+def _startup_dep_check() -> None:
+    """기동 시 필수 모듈 존재를 검사해 로그로 즉시 알린다.
+    (잘못된 venv 로 기동되면 open3d 등이 없어 지면격자/TX스냅이 조용히 실패하는 문제 예방)"""
+    import importlib.util
+    import sys as _sys
+    crit = ["open3d", "sionna", "trimesh", "tensorflow"]
+    missing = [m for m in crit if importlib.util.find_spec(m) is None]
+    lg = logging.getLogger("webagent")
+    if missing:
+        lg.error(
+            "\n%s\n[기동 경고] 필수 모듈 누락: %s\n  실행 python: %s\n"
+            "  → 잘못된 venv 로 기동되었을 가능성이 큽니다. 올바른 venv: /opt/venvs/webagent\n"
+            "  이 상태에서는 RX 지면격자/TX 스냅/일부 기능이 실패합니다.\n%s",
+            "=" * 66, missing, _sys.executable, "=" * 66,
+        )
+    else:
+        lg.info("[기동] 필수 모듈 OK (open3d/sionna/trimesh/tensorflow) · python=%s", _sys.executable)
+
+
+_startup_dep_check()
+
+
 @app.get("/api/health")
 async def health() -> dict:
-    return {"ok": True, "sessions_root": str(SESSIONS_ROOT)}
+    """상태 + 진단(venv/모듈/GPU). ok=False 면 필수 모듈 누락(잘못된 venv 등)."""
+    import importlib.util
+    import subprocess
+    import sys as _sys
+
+    crit = ["open3d", "sionna", "tensorflow", "trimesh", "mitsuba", "numpy", "fastapi"]
+    modules = {m: (importlib.util.find_spec(m) is not None) for m in crit}
+    missing = [m for m in ("open3d", "sionna", "trimesh") if not modules[m]]
+
+    gpu: dict = {}
+    try:
+        from .jobs.runtime_env import get_runtime_summary, get_gpu_policy
+        rs = get_runtime_summary()
+        gpu["policy_reason"] = get_gpu_policy().get("reason")
+        gpu["tf_gpus"] = len(rs.get("gpus", []) or [])
+        gpu["mitsuba_variant"] = rs.get("mitsuba_variant")
+    except Exception:
+        pass
+    try:
+        out = subprocess.check_output(
+            ["nvidia-smi", "--query-gpu=index,memory.used,memory.total,utilization.gpu",
+             "--format=csv,noheader,nounits"], text=True, timeout=6)
+        gpu["nvidia_smi"] = [ln.strip() for ln in out.strip().splitlines()]
+    except Exception:
+        gpu["nvidia_smi"] = None
+
+    return {
+        "ok": len(missing) == 0,
+        "sessions_root": str(SESSIONS_ROOT),
+        "python": _sys.executable,
+        "python_version": _sys.version.split()[0],
+        "venv_ok": "/opt/venvs/webagent" in _sys.executable,
+        "modules": modules,
+        "missing_critical": missing,
+        "gpu": gpu,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -450,6 +507,25 @@ async def get_scene_info(uuid: str) -> dict:
     return json.loads(p.read_text(encoding="utf-8"))
 
 
+@app.get("/api/sessions/{uuid}/scene/materials")
+async def get_scene_materials(uuid: str, freq_ghz: float = 7.0) -> dict:
+    """씬 재질 목록 + 특성(εr, σ, XPD, shape수) + 문헌 산란계수 기본값.
+
+    ITU 재질(itu_concrete/itu_glass 등)은 freq_ghz 로 εr/σ 를 계산하고,
+    커스텀 재질(irr_glass 등)은 scene.xml 에 명시된 값을 그대로 읽는다.
+    3.TX/RX 의 'Material Properties' 섹션이 사용한다.
+    """
+    from .rt_agent_park2.material_props import parse_scene_materials
+    scene_xml = SESSIONS_ROOT / uuid / "scene" / "scene.xml"
+    if not scene_xml.exists():
+        raise HTTPException(404, "no scene uploaded yet")
+    try:
+        materials = parse_scene_materials(scene_xml, freq_ghz * 1e9)
+    except Exception as ex:
+        raise HTTPException(400, f"재질 파싱 실패: {ex}")
+    return {"freq_ghz": freq_ghz, "materials": materials}
+
+
 @app.get("/api/sessions/{uuid}/scene/mesh/{name}")
 async def get_scene_mesh(uuid: str, name: str) -> FileResponse:
     """3D 뷰어가 메시 PLY를 다운로드 받을 때 사용."""
@@ -458,6 +534,114 @@ async def get_scene_mesh(uuid: str, name: str) -> FileResponse:
     if not p.exists():
         raise HTTPException(404, "mesh not found")
     return FileResponse(p, media_type="application/octet-stream", filename=name)
+
+
+@app.get("/api/sessions/{uuid}/scene/geometry")
+async def get_scene_geometry(uuid: str) -> dict:
+    """재질별 병합 geometry manifest. 3D 뷰어가 파일당 1요청(수천개) 대신
+    재질당 1요청으로 로드하도록 만든다(성능). 최초 호출 시 병합 캐시를 빌드."""
+    from .rt_agent_park2.mesh_merge import build_merged_geometry
+    scene_dir = SESSIONS_ROOT / uuid / "scene"
+    if not (scene_dir / "scene.xml").exists():
+        raise HTTPException(404, "no scene uploaded yet")
+    try:
+        manifest = build_merged_geometry(scene_dir)
+    except Exception as ex:
+        raise HTTPException(400, f"geometry 병합 실패: {ex}")
+    return manifest
+
+
+@app.get("/api/sessions/{uuid}/scene/merged/{name}")
+async def get_scene_merged(uuid: str, name: str) -> FileResponse:
+    """병합 geometry 바이너리(.f32, little-endian float32 삼각형 soup) 서빙."""
+    if "/" in name or ".." in name:
+        raise HTTPException(400, "invalid name")
+    p = SESSIONS_ROOT / uuid / "scene" / "meshes_merged" / name
+    if not p.exists():
+        raise HTTPException(404, "merged geometry not found")
+    return FileResponse(p, media_type="application/octet-stream", filename=name)
+
+
+# ---------------------------------------------------------------------------
+# Experiment presets (3.TX/RX 설정 저장/불러오기) — 세션 독립, 재사용 가능
+#   {TX 목록, 안테나 설정, RX 배치방법, 안테나 패턴/재질 산란계수} 를 JSON 으로 보관.
+# ---------------------------------------------------------------------------
+EXPERIMENT_PRESETS = Path(__file__).resolve().parent / "experiment_presets"
+
+
+def _preset_summary(d: dict) -> dict:
+    """목록 표시용 요약 (무거운 좌표 배열은 개수만)."""
+    rx = d.get("rx") or {}
+    return {
+        "id": d.get("id"),
+        "name": d.get("name", ""),
+        "scene_name": d.get("scene_name", ""),
+        "created_at": d.get("created_at", ""),
+        "n_tx": len(d.get("tx") or []),
+        "rx_method": rx.get("method", ""),
+        "antenna": d.get("antenna") or {},
+    }
+
+
+@app.get("/api/experiment_presets")
+async def list_experiment_presets() -> dict:
+    """저장된 실험 설정 목록 (요약). 최신순."""
+    EXPERIMENT_PRESETS.mkdir(parents=True, exist_ok=True)
+    out = []
+    for f in EXPERIMENT_PRESETS.glob("*.json"):
+        try:
+            out.append(_preset_summary(json.loads(f.read_text(encoding="utf-8"))))
+        except Exception:
+            continue
+    out.sort(key=lambda e: e.get("created_at", ""), reverse=True)
+    return {"presets": out}
+
+
+@app.get("/api/experiment_presets/{pid}")
+async def get_experiment_preset(pid: str) -> dict:
+    """단일 실험 설정 전체(복원용)."""
+    if "/" in pid or ".." in pid:
+        raise HTTPException(400, "invalid id")
+    p = EXPERIMENT_PRESETS / f"{pid}.json"
+    if not p.exists():
+        raise HTTPException(404, "preset not found")
+    return json.loads(p.read_text(encoding="utf-8"))
+
+
+@app.post("/api/experiment_presets")
+async def save_experiment_preset(body: dict) -> dict:
+    """실험 설정 저장. body: {name, scene_name, tx, antenna, rx, rt}."""
+    import uuid as _uuid
+    import datetime as _dt
+    EXPERIMENT_PRESETS.mkdir(parents=True, exist_ok=True)
+    name = str(body.get("name") or "").strip()
+    if not name:
+        raise HTTPException(400, "name(설정 이름)이 필요합니다")
+    pid = _uuid.uuid4().hex[:12]
+    doc = {
+        "id": pid,
+        "name": name,
+        "scene_name": str(body.get("scene_name") or ""),
+        "created_at": _dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "tx": body.get("tx") or [],
+        "antenna": body.get("antenna") or {},
+        "rx": body.get("rx") or {},
+        "rt": body.get("rt") or {},
+    }
+    (EXPERIMENT_PRESETS / f"{pid}.json").write_text(
+        json.dumps(doc, ensure_ascii=False, indent=2), encoding="utf-8")
+    return {"ok": True, "id": pid, "summary": _preset_summary(doc)}
+
+
+@app.delete("/api/experiment_presets/{pid}")
+async def delete_experiment_preset(pid: str) -> dict:
+    if "/" in pid or ".." in pid:
+        raise HTTPException(400, "invalid id")
+    p = EXPERIMENT_PRESETS / f"{pid}.json"
+    deleted = p.exists()
+    if deleted:
+        p.unlink()
+    return {"deleted": deleted}
 
 
 # ---------------------------------------------------------------------------
@@ -838,6 +1022,51 @@ def rx_ground_grid(uuid: str, req: dict) -> dict:
     return {"positions": pos, "count": len(pos), "candidates": grid_n * grid_n}
 
 
+@app.post("/api/sessions/{uuid}/rx_facade")
+def rx_facade(uuid: str, req: dict) -> dict:
+    """건물 외벽(수직면) RX 미리보기 (O2I).
+
+    body: {z_min=1, z_max=30, z_distance=3, facade_spacing=5, facade_epsilon=0.3,
+           facade_max_normal_z=0.5}
+    returns: {positions: [[x,y,z],...], count, z_layers, materials}
+    """
+    from .rt_agent_park2.facade import compute_facade_rx
+
+    scene_xml = SESSIONS_ROOT / uuid / "scene" / "scene.xml"
+    if not scene_xml.exists():
+        raise HTTPException(404, "scene.xml not found — 먼저 씬을 업로드/선택하세요.")
+
+    def _f(key, default):
+        v = req.get(key, None)
+        return float(v) if v is not None and v != "" else float(default)
+
+    def _fopt(key):
+        v = req.get(key, None)
+        return float(v) if v is not None and v != "" else None
+
+    try:
+        res = compute_facade_rx(
+            scene_xml,
+            z_min=_f("z_min", 1.0), z_max=_f("z_max", 30.0),
+            z_distance=_f("z_distance", 3.0), spacing=_f("facade_spacing", 5.0),
+            epsilon=_f("facade_epsilon", 0.3),
+            max_normal_z=_f("facade_max_normal_z", 0.5),
+            x_min=_fopt("x_min"), x_max=_fopt("x_max"),
+            y_min=_fopt("y_min"), y_max=_fopt("y_max"),
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(500, f"rx_facade failed: {type(exc).__name__}: {exc}")
+    # count_only=True: 좌표 배열 없이 개수만 반환 (O2I 실시간 개수 표시용, 페이로드 절감)
+    resp = {
+        "count": res["count"],
+        "z_layers": res["z_layers"],
+        "materials": sorted({m["material"] for m in res["meta"]}),
+    }
+    if not bool(req.get("count_only", False)):
+        resp["positions"] = res["points"]
+    return resp
+
+
 # ---------------------------------------------------------------------------
 # Scenario Generator (Mobility) — batch RT 산출물(USDA/OBJ) 기반
 # ---------------------------------------------------------------------------
@@ -893,6 +1122,12 @@ def scenario_generate(uuid: str, req: dict) -> dict:
     # 다운로드용 상대경로
     rel = Path(res["script_path"]).relative_to(SESSIONS_ROOT / uuid)
     res["script_rel"] = str(rel)
+    if res.get("unreal_script_path"):
+        try:
+            urel = Path(res["unreal_script_path"]).relative_to(SESSIONS_ROOT / uuid)
+            res["unreal_script_rel"] = str(urel)
+        except Exception:  # noqa: BLE001
+            pass
 
     # 세션에 영속화 — 세션을 다시 열거나 새로고침해도 8.Scenario/9.Scenario Results 복원.
     state = {
@@ -1019,6 +1254,24 @@ async def post_job(uuid: str, req: JobSubmitRequest) -> dict:
                   user_name=(meta.user_name if meta else ""),
                   engine=req.rt.engine)
     return {**job.to_dict(), "queued": True, "session_uuid": uuid}
+
+
+@app.post("/api/sessions/{uuid}/estimate")
+async def estimate_job(uuid: str, body: dict) -> dict:
+    """(A) 실행 전 시간 예측. Run 창에서 config 를 바꿀 때마다 호출.
+
+    body: { "payload": <job payload>, "rx_count": <int|null> }
+      - payload 없으면 body 자체를 payload 로 간주(하위호환).
+      - rx_count: 프런트가 미리보기로 계산한 실제 RX 개수(ground_grid/facade 필수).
+    """
+    from .time_estimator import estimate
+
+    payload = body.get("payload") if isinstance(body, dict) and "payload" in body else body
+    rx_count = body.get("rx_count") if isinstance(body, dict) else None
+    try:
+        return estimate(payload or {}, rx_count_hint=rx_count)
+    except Exception as exc:  # noqa: BLE001 — 예측 실패가 UI 를 막지 않도록
+        return {"available": False, "reason": f"예측 계산 오류: {type(exc).__name__}: {exc}"}
 
 
 @app.get("/api/queue")

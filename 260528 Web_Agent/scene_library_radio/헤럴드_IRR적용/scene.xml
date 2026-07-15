@@ -1,0 +1,35 @@
+<scene version="2.1.0">
+
+	<integrator type="path">
+		<integer name="max_depth" value="6"/>
+	</integrator>
+
+<!-- Materials -->
+	<bsdf type="radio-material" id="mat-irr_glass" name="mat-irr_glass">
+		<float name="relative_permittivity" value="6.31"/>
+		<float name="conductivity" value="5.0"/>
+		<float name="thickness" value="0.02"/>
+		<float name="scattering_coefficient" value="0.0"/>
+		<float name="xpd_coefficient" value="0.0"/>
+	</bsdf>
+	<bsdf type="diffuse" id="mat-itu_concrete" name="mat-itu_concrete">
+		<rgb value="0.800000 0.800000 0.800000" name="reflectance"/>
+	</bsdf>
+
+<!-- Shapes -->
+	<shape type="ply" id="elm__0" name="elm__0">
+		<string name="filename" value="meshes/herald_osm_high_irr.ply"/>
+		<boolean name="face_normals" value="true"/>
+		<ref id="mat-irr_glass" name="bsdf"/>
+	</shape>
+	<shape type="ply" id="elm__1" name="elm__1">
+		<string name="filename" value="meshes/herald_osm_low_concrete.ply"/>
+		<boolean name="face_normals" value="true"/>
+		<ref id="mat-itu_concrete" name="bsdf"/>
+	</shape>
+	<shape type="ply" id="elm__2" name="elm__2">
+		<string name="filename" value="meshes/herald_osm_ground_concrete.ply"/>
+		<boolean name="face_normals" value="true"/>
+		<ref id="mat-itu_concrete" name="bsdf"/>
+	</shape>
+</scene>
